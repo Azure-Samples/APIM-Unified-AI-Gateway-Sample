@@ -38,7 +38,7 @@ locals {
   # APIM principal ID (data source has identity block, module outputs principal_id directly)
   apim_principal_id = var.existing_apim_name != "" ? (
     length(data.azurerm_api_management.existing[0].identity) > 0
-      ? data.azurerm_api_management.existing[0].identity[0].principal_id
-      : null
+    ? data.azurerm_api_management.existing[0].identity[0].principal_id
+    : null
   ) : module.apim_infrastructure[0].principal_id
 }

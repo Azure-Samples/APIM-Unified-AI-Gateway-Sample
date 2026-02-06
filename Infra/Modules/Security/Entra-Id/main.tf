@@ -19,7 +19,7 @@ resource "azuread_application" "gateway_app" {
   display_name     = "${var.naming_prefix}-app"
   owners           = [data.azurerm_client_config.current.object_id]
   sign_in_audience = "AzureADMyOrg"
-  
+
   # Start with empty identifier_uris - actual URI set by separate resource after client_id is generated
   identifier_uris = []
 
@@ -39,25 +39,25 @@ resource "azuread_application" "gateway_app" {
 
     oauth2_permission_scope {
       admin_consent_description  = "Allow access to Unified AI Gateway API"
-      admin_consent_display_name = "Access Unified AI Gateway API"  
-      enabled                   = true
-      id                       = random_uuid.oauth2_scope_id.result
-      type                     = "User"
-      user_consent_description  = "Allow access to Unified AI Gateway API"
-      user_consent_display_name = "Access Unified AI Gateway API"
-      value                    = "access_as_user"
+      admin_consent_display_name = "Access Unified AI Gateway API"
+      enabled                    = true
+      id                         = random_uuid.oauth2_scope_id.result
+      type                       = "User"
+      user_consent_description   = "Allow access to Unified AI Gateway API"
+      user_consent_display_name  = "Access Unified AI Gateway API"
+      value                      = "access_as_user"
     }
   }
 
   app_role {
     allowed_member_types = ["User", "Application"]
-    description         = "ReadWrite roles have read and write access to the application data"
-    display_name        = "ReadWrite"
-    enabled            = true
-    id                 = random_uuid.app_role_id.result
-    value              = "Task.ReadWrite"
+    description          = "ReadWrite roles have read and write access to the application data"
+    display_name         = "ReadWrite"
+    enabled              = true
+    id                   = random_uuid.app_role_id.result
+    value                = "Task.ReadWrite"
   }
-  
+
   lifecycle {
     # Ignore changes to identifier_uris after creation to prevent drift
     ignore_changes = [identifier_uris]

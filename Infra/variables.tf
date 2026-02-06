@@ -7,8 +7,8 @@ variable "apim_sku_name" {
   default     = "BasicV2_1"
   validation {
     condition = var.apim_sku_name == "" || contains([
-      "Developer_1", "Basic_1", "Basic_2", 
-      "Standard_1", "Standard_2", 
+      "Developer_1", "Basic_1", "Basic_2",
+      "Standard_1", "Standard_2",
       "Premium_1", "Premium_2", "Premium_4", "Premium_6",
       "BasicV2_1", "StandardV2_1", "PremiumV2_1"
     ], var.apim_sku_name)
@@ -20,12 +20,12 @@ variable "entra_app_client_secret_kv_ref" {
   type        = string
   default     = ""
   description = "Key Vault reference for existing Entra ID app client secret. Required when using existing_entra_app_id. Format: akvs://{subscription_id}/{key_vault_name}/{secret_name}"
-  
+
   validation {
     condition     = var.entra_app_client_secret_kv_ref == "" || can(regex("^akvs://[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[^/]+/[^/]+$", var.entra_app_client_secret_kv_ref))
     error_message = "entra_app_client_secret_kv_ref must be either empty string or a valid Key Vault reference in format: akvs://{subscription_id}/{key_vault_name}/{secret_name}"
   }
-  
+
   validation {
     condition = (
       var.existing_entra_app_id == "" ||
@@ -51,7 +51,7 @@ variable "existing_apim_rg" {
   type        = string
   default     = ""
   description = "Resource group containing existing APIM. Required only when existing_apim_name is set."
-  
+
   validation {
     condition = (
       var.existing_apim_name == "" ||
@@ -71,7 +71,7 @@ variable "existing_appinsight_rg" {
   type        = string
   default     = ""
   description = "Resource group containing existing Application Insights. Required only when existing_appinsight_name is set."
-  
+
   validation {
     condition = (
       var.existing_appinsight_name == "" ||
@@ -85,7 +85,7 @@ variable "existing_entra_app_id" {
   type        = string
   default     = ""
   description = "Client ID (Application ID) of existing Entra ID app registration to use. Set to empty string to create new app registration."
-  
+
   validation {
     condition     = var.existing_entra_app_id == "" || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.existing_entra_app_id))
     error_message = "existing_entra_app_id must be either empty string or a valid GUID format."

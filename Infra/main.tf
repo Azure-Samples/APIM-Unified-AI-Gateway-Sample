@@ -39,7 +39,7 @@ data "azurerm_api_management" "existing" {
   count               = var.existing_apim_name != "" ? 1 : 0
   name                = var.existing_apim_name
   resource_group_name = var.existing_apim_rg
-  
+
   lifecycle {
     postcondition {
       condition     = length(self.identity) > 0
@@ -61,8 +61,8 @@ data "azurerm_application_insights" "existing" {
 }
 
 data "azuread_application" "existing" {
-  count        = var.existing_entra_app_id != "" ? 1 : 0
-  client_id    = var.existing_entra_app_id
+  count     = var.existing_entra_app_id != "" ? 1 : 0
+  client_id = var.existing_entra_app_id
 }
 
 data "azuread_service_principal" "existing" {
@@ -76,7 +76,7 @@ data "azuread_service_principal" "existing" {
 
 module "foundation" {
   source = "./Modules/Resource-Group"
-  
+
   resource_group_name = var.resource_group_name
   location            = var.location
   environment_name    = var.environment_name
@@ -91,7 +91,7 @@ module "foundation" {
 module "app_insights_infrastructure" {
   count  = var.existing_appinsight_name == "" ? 1 : 0
   source = "./Modules/App-Insights/AI-Infrastructure"
-  
+
   resource_group_name = local.apim_resource_group_name
   location            = local.apim_location
   resource_prefix     = local.resource_prefix
@@ -106,14 +106,14 @@ module "app_insights_infrastructure" {
 # Inference Tier Foundry
 module "foundry_inference" {
   source = "./Modules/AI-Services/Foundry"
-  
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_inference_region
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "inference"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_inference_region
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "inference"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "Phi-4"
   model_name      = "Phi-4"
   model_format    = "Microsoft"
@@ -127,13 +127,13 @@ module "foundry_premium_region_1" {
   depends_on = [module.foundry_inference]
   source     = "./Modules/AI-Services/Foundry"
 
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_premium_region_1
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "premium-region1"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_premium_region_1
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "premium-region1"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "gpt-4.1"
   model_name      = "gpt-4.1"
   model_version   = "2025-04-14"
@@ -146,13 +146,13 @@ module "foundry_premium_region_2" {
   depends_on = [module.foundry_premium_region_1]
   source     = "./Modules/AI-Services/Foundry"
 
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_premium_region_2
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "premium-region2"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_premium_region_2
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "premium-region2"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "gpt-4.1"
   model_name      = "gpt-4.1"
   model_version   = "2025-04-14"
@@ -165,13 +165,13 @@ module "foundry_premium_region_3" {
   depends_on = [module.foundry_premium_region_2]
   source     = "./Modules/AI-Services/Foundry"
 
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_premium_region_3
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "premium-region3"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_premium_region_3
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "premium-region3"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "gpt-4.1"
   model_name      = "gpt-4.1"
   model_version   = "2025-04-14"
@@ -184,13 +184,13 @@ module "foundry_standard_region_1" {
   depends_on = [module.foundry_premium_region_3]
   source     = "./Modules/AI-Services/Foundry"
 
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_standard_region_1
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "standard-region1"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_standard_region_1
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "standard-region1"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "gpt-4.1-mini"
   model_name      = "gpt-4.1-mini"
   model_version   = "2025-04-14"
@@ -203,13 +203,13 @@ module "foundry_standard_region_2" {
   depends_on = [module.foundry_standard_region_1]
   source     = "./Modules/AI-Services/Foundry"
 
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_standard_region_2
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "standard-region2"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_standard_region_2
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "standard-region2"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "gpt-4.1-mini"
   model_name      = "gpt-4.1-mini"
   model_version   = "2025-04-14"
@@ -222,13 +222,13 @@ module "foundry_standard_region_3" {
   depends_on = [module.foundry_standard_region_2]
   source     = "./Modules/AI-Services/Foundry"
 
-  resource_group_id      = module.foundation.resource_group_id
-  region                 = var.foundry_standard_region_3
-  resource_prefix        = local.resource_prefix
-  foundry_name_suffix    = "standard-region3"
-  tags                   = local.tags
-  key_vault_id           = data.azurerm_key_vault.secrets.id
-  
+  resource_group_id   = module.foundation.resource_group_id
+  region              = var.foundry_standard_region_3
+  resource_prefix     = local.resource_prefix
+  foundry_name_suffix = "standard-region3"
+  tags                = local.tags
+  key_vault_id        = data.azurerm_key_vault.secrets.id
+
   deployment_name = "gpt-4.1-mini"
   model_name      = "gpt-4.1-mini"
   model_version   = "2025-04-14"
@@ -243,10 +243,10 @@ module "foundry_standard_region_3" {
 module "entra_id" {
   count  = var.existing_entra_app_id == "" ? 1 : 0
   source = "./Modules/Security/Entra-Id"
-  
-  naming_prefix  = local.resource_prefix
-  key_vault_id   = data.azurerm_key_vault.secrets.id
-  tags           = local.tags
+
+  naming_prefix = local.resource_prefix
+  key_vault_id  = data.azurerm_key_vault.secrets.id
+  tags          = local.tags
 }
 
 # ============================================================================
@@ -256,7 +256,7 @@ module "entra_id" {
 module "apim_infrastructure" {
   count  = var.existing_apim_name == "" ? 1 : 0
   source = "./Modules/API-Management/APIM-Infrastructure"
-  
+
   resource_group_name = module.foundation.resource_group_name
   location            = var.location
   resource_prefix     = local.resource_prefix
@@ -271,7 +271,7 @@ module "apim_infrastructure" {
 
 module "app_insights_configuration" {
   source = "./Modules/App-Insights/AI-Configuration"
-  
+
   tags            = local.tags
   app_insights_id = local.app_insights.id
 }
@@ -287,21 +287,21 @@ module "apim_configuration" {
   tags             = local.tags
   apim_id          = local.apim.id
   apim_gateway_url = local.apim.gateway_url
-  
-  app_insights_id                           = local.app_insights.id
-  app_insights_instrumentation_key          = local.app_insights.instrumentation_key
+
+  app_insights_id                            = local.app_insights.id
+  app_insights_instrumentation_key           = local.app_insights.instrumentation_key
   app_insights_instrumentation_key_secret_id = var.existing_appinsight_name == "" ? module.app_insights_infrastructure[0].instrumentation_key_secret_id : null
-  use_key_vault_for_appinsights            = var.existing_appinsight_name == ""
-  
+  use_key_vault_for_appinsights              = var.existing_appinsight_name == ""
+
   # App Insights logger linking (inferred: create new logger if existing_logger_name is empty)
   create_appinsights_logger = var.existing_logger_name == ""
   existing_logger_name      = var.existing_logger_name
-  
+
   tenant_id    = data.azurerm_client_config.current.tenant_id
   entra_app_id = local.entra_app_id
-  
+
   foundry_inference_endpoint = module.foundry_inference.foundry_account_endpoint
-  
+
   foundry_premium_endpoints = [
     module.foundry_premium_region_1.foundry_account_endpoint,
     module.foundry_premium_region_2.foundry_account_endpoint,
@@ -312,10 +312,10 @@ module "apim_configuration" {
     module.foundry_standard_region_2.foundry_account_endpoint,
     module.foundry_standard_region_3.foundry_account_endpoint
   ]
-  
+
   gemini_key_vault_secret_id = "${data.azurerm_key_vault.secrets.vault_uri}secrets/${local.gemini_secret_name}"
   gemini_endpoint            = var.gemini_endpoint
-  
+
   key_vault_id = data.azurerm_key_vault.secrets.id
 }
 
@@ -334,10 +334,10 @@ resource "azurerm_role_assignment" "apim_key_vault_secrets_user" {
 module "rbac" {
   count  = var.existing_apim_name != "" ? (local.apim_principal_id != null ? 1 : 0) : 1
   source = "./Modules/Security/RBAC"
-  
+
   apim_principal_id           = local.apim_principal_id
   service_principal_object_id = local.service_principal_object_id
-  
+
   foundry_account_ids = [
     module.foundry_inference.foundry_account_id,
     module.foundry_premium_region_1.foundry_account_id,
@@ -347,7 +347,7 @@ module "rbac" {
     module.foundry_standard_region_2.foundry_account_id,
     module.foundry_standard_region_3.foundry_account_id
   ]
-  
+
   apim_id = local.apim.id
   tags    = local.tags
 }

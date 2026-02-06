@@ -125,7 +125,7 @@ resource "azapi_resource_action" "ai_foundry_keys" {
   resource_id            = azapi_resource.ai_foundry.id
   action                 = "listKeys"
   response_export_values = ["key1", "key2"]
-  
+
   depends_on = [
     azapi_resource.deployment,
     azapi_resource.ai_foundry_project

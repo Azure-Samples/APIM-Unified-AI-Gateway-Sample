@@ -60,7 +60,7 @@ data "azurerm_api_management" "apim_readiness_check" {
 # Even after gateway_url is available, the management API may need extra time
 resource "time_sleep" "apim_management_api_delay" {
   depends_on = [data.azurerm_api_management.apim_readiness_check]
-  
+
   create_duration = "60s"
 }
 
@@ -145,7 +145,7 @@ resource "azurerm_api_management_named_value" "gemini_api_key" {
   value_from_key_vault {
     secret_id = var.gemini_key_vault_secret_id
   }
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -156,7 +156,7 @@ resource "azurerm_api_management_named_value" "jwt_tenant_id" {
   api_management_name = local.apim_name
   display_name        = "JWT-TenantId"
   value               = var.tenant_id
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -166,7 +166,7 @@ resource "azurerm_api_management_named_value" "jwt_app_registration_id" {
   api_management_name = local.apim_name
   display_name        = "JWT-AppRegistrationId"
   value               = var.entra_app_id
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -176,7 +176,7 @@ resource "azurerm_api_management_named_value" "jwt_issuer" {
   api_management_name = local.apim_name
   display_name        = "JWT-Issuer"
   value               = "https://login.microsoftonline.com/${var.tenant_id}/v2.0"
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -186,7 +186,7 @@ resource "azurerm_api_management_named_value" "jwt_openid_config_url" {
   api_management_name = local.apim_name
   display_name        = "JWT-OpenIdConfigUrl"
   value               = "https://login.microsoftonline.com/${var.tenant_id}/v2.0/.well-known/openid-configuration"
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -201,7 +201,7 @@ resource "azurerm_api_management_named_value" "unified_ai_gateway_sub_key" {
   value_from_key_vault {
     secret_id = azurerm_key_vault_secret.apim_subscription_key.id
   }
-  
+
   depends_on = [azurerm_key_vault_secret.apim_subscription_key]
 }
 
@@ -216,7 +216,7 @@ resource "azapi_resource" "gemini_backend" {
   parent_id = var.apim_id
 
   schema_validation_enabled = true
-  
+
   depends_on = [
     data.azurerm_api_management.apim_readiness_check,
     azurerm_api_management_named_value.gemini_api_key
@@ -228,7 +228,7 @@ resource "azapi_resource" "gemini_backend" {
       url      = "${trimsuffix(var.gemini_endpoint != "" ? var.gemini_endpoint : "https://generativelanguage.googleapis.com", "/")}/"
       protocol = "http"
       credentials = {
-        query = {}
+        query  = {}
         header = {}
       }
       tls = {
@@ -244,7 +244,7 @@ resource "azapi_resource" "aoai_standard_responses" {
   type      = "Microsoft.ApiManagement/service/backends@2023-09-01-preview"
   name      = "standard-responses-backend"
   parent_id = var.apim_id
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 
   body = {
@@ -290,7 +290,7 @@ resource "azapi_resource" "inference_backend" {
   type      = "Microsoft.ApiManagement/service/backends@2023-09-01-preview"
   name      = "inference-backend"
   parent_id = var.apim_id
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 
   body = {
@@ -342,7 +342,7 @@ resource "azapi_resource" "openai_premium_backends" {
   type      = "Microsoft.ApiManagement/service/backends@2023-09-01-preview"
   name      = "premium-service-${count.index + 1}"
   parent_id = var.apim_id
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 
   body = {
@@ -417,7 +417,7 @@ resource "azapi_resource" "openai_standard_backends" {
   type      = "Microsoft.ApiManagement/service/backends@2023-09-01-preview"
   name      = "standard-service-${count.index + 1}"
   parent_id = var.apim_id
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 
   body = {
@@ -478,7 +478,7 @@ resource "azurerm_api_management_api" "wildcard" {
     content_format = "openapi+json"
     content_value  = file("${path.module}/../../../Resources/Schema/unifiedaigateway-wildcard-api.json")
   }
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -489,7 +489,7 @@ resource "azapi_resource" "wildcard_appinsights" {
   type      = "Microsoft.ApiManagement/service/apis/diagnostics@2022-08-01"
   name      = "applicationinsights"
   parent_id = azurerm_api_management_api.wildcard.id
-  
+
   depends_on = [
     data.azurerm_api_management.apim_readiness_check
   ]
@@ -549,7 +549,7 @@ resource "azapi_resource" "service_appinsights_diagnostic" {
   type      = "Microsoft.ApiManagement/service/diagnostics@2022-08-01"
   name      = "applicationinsights"
   parent_id = var.apim_id
-  
+
   depends_on = [
     data.azurerm_api_management.apim_readiness_check,
     azurerm_api_management_logger.appinsights_logger
@@ -608,7 +608,7 @@ resource "azurerm_api_management_policy_fragment" "backend_selector" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/backend-selector.xml")
-  
+
   depends_on = [
     data.azurerm_api_management.apim_readiness_check,
     azurerm_api_management_named_value.gemini_api_key
@@ -620,7 +620,7 @@ resource "azurerm_api_management_policy_fragment" "config_cache" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/central-cache-manager.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -629,7 +629,7 @@ resource "azurerm_api_management_policy_fragment" "debug_headers" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/diagnostic-headers.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -638,7 +638,7 @@ resource "azurerm_api_management_policy_fragment" "metadata_config" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/metadata-config.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -659,7 +659,7 @@ resource "azurerm_api_management_policy_fragment" "token_limiter" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/token-limiter.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -668,7 +668,7 @@ resource "azurerm_api_management_policy_fragment" "request_processor" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/request-processor.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -677,7 +677,7 @@ resource "azurerm_api_management_policy_fragment" "security_handler" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/security-handler.xml")
-  
+
   depends_on = [
     data.azurerm_api_management.apim_readiness_check,
     azurerm_api_management_named_value.jwt_app_registration_id,
@@ -691,7 +691,7 @@ resource "azurerm_api_management_policy_fragment" "token_logger" {
   api_management_id = var.apim_id
   format            = "rawxml"
   value             = file("${path.module}/../../../Resources/Fragments/token-logger.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -734,7 +734,7 @@ resource "azurerm_api_management_product" "jwt" {
   subscription_required = false
   approval_required     = false
   published             = false
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -748,7 +748,7 @@ resource "azurerm_api_management_product" "subscription" {
   subscription_required = true
   approval_required     = false
   published             = false
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -758,7 +758,7 @@ resource "azurerm_api_management_product_api" "jwt_wildcard" {
   api_name            = azurerm_api_management_api.wildcard.name
   api_management_name = local.apim_name
   resource_group_name = local.apim_resource_group
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -767,7 +767,7 @@ resource "azurerm_api_management_product_api" "subscription_wildcard" {
   api_name            = azurerm_api_management_api.wildcard.name
   api_management_name = local.apim_name
   resource_group_name = local.apim_resource_group
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -777,7 +777,7 @@ resource "azurerm_api_management_product_policy" "jwt_policy" {
   api_management_name = local.apim_name
   resource_group_name = local.apim_resource_group
   xml_content         = file("${path.module}/../../../Resources/Policies/ProductPolicies/unifiedaigateway-product-jwt.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -786,7 +786,7 @@ resource "azurerm_api_management_product_policy" "subscription_policy" {
   api_management_name = local.apim_name
   resource_group_name = local.apim_resource_group
   xml_content         = file("${path.module}/../../../Resources/Policies/ProductPolicies/unifiedaigateway-product-subscription.xml")
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 
@@ -797,7 +797,7 @@ resource "azurerm_api_management_subscription" "unified_ai_subscription" {
   display_name        = "Unified AI Gateway Subscription"
   product_id          = azurerm_api_management_product.subscription.id
   state               = "active"
-  
+
   depends_on = [data.azurerm_api_management.apim_readiness_check]
 }
 

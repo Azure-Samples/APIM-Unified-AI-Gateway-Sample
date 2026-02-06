@@ -32,7 +32,7 @@ resource "azurerm_api_management" "apim" {
   identity {
     type = "SystemAssigned"
   }
-  
+
   lifecycle {
     postcondition {
       condition     = self.identity[0].type == "SystemAssigned" && self.identity[0].principal_id != null
