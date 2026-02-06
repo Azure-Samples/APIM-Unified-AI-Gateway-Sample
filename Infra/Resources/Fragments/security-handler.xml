@@ -1,0 +1,137 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+====================================================================================================
+Security Handler Fragment
+====================================================================================================
+	
+SUMMARY:
+	Provides authentication supporting both API key and JWT Bearer token methods
+	with Microsoft Entra ID integration and managed identity backend authentication.
+	
+INPUT VARIABLES:
+    - api-key header: API key for subscription-based authentication
+	- Authorization header: Bearer token for JWT authentication
+	
+OUTPUT VARIABLES:
+    - auth-type: String - Authentication type ("api-key", "jwt", "none")
+	- subscription-name: String - Subscription name or JWT username
+	- user-id: String - User identifier from JWT claim or subscription name
+	- jwt-audience: String - JWT audience from named value (set for JWT auth)
+	- jwt-openid-config: String - JWT OpenID config URL from named value (set for JWT auth)
+	- jwt-issuer: String - JWT issuer from named value (set for JWT auth)
+	
+DOWNSTREAM CONSUMERS:
+	- rate-limiting fragment: Uses subscription context for rate limits
+	- token-tracking fragment: Uses auth context for usage logging
+	- trace logging: Uses auth-type and user context for audit trails
+	- diagnostic-headers fragment: Uses jwt-* variables for debug headers
+	
+UPSTREAM DEPENDENCIES:
+	- None (uses APIM named values directly for JWT configuration)
+	-->
+<fragment fragment-id="security-handler">
+	<!-- Determine authentication method used in request -->
+	<set-variable name="auth-type" value="@{
+		var apiKey = context.Request.Headers.GetValueOrDefault("api-key", String.Empty);
+		var authHeader = context.Request.Headers.GetValueOrDefault("Authorization", String.Empty);
+		return !string.IsNullOrEmpty(apiKey) ? "api-key" : authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? "jwt" : "none";
+	}" />
+	<!-- Get subscription name for tracking -->
+	<set-variable name="subscription-name" value="@{
+		var authType = context.Variables.GetValueOrDefault<string>("auth-type", "none");
+		return authType.Equals("api-key", StringComparison.OrdinalIgnoreCase) ? (context.Subscription?.Name ?? "api-key-anonymous") : authType.Equals("jwt", StringComparison.OrdinalIgnoreCase) ? "jwt-auth" : "anonymous";
+	}" />
+	<!-- Authentication and authorization -->
+	<choose>
+		<!-- Authenticate with API key -->
+		<!-- Note: Subscription key header/query configured as 'api-key' in APIM API settings (instead of default 'Ocp-Apim-Subscription-Key' and 'subscription-key') -->
+		<!-- Reference: https://learn.microsoft.com/azure/api-management/api-management-subscriptions#create-and-manage-subscriptions-in-azure-portal -->
+		<when condition="@(context.Variables.GetValueOrDefault<string>("auth-type", string.Empty).Equals("api-key", StringComparison.OrdinalIgnoreCase))">
+			<choose>
+				<when condition="@(context.Subscription == null)">
+					<return-response>
+						<set-status code="401" reason="Unauthorized" />
+						<set-header name="Content-Type" exists-action="override">
+							<value>application/json</value>
+						</set-header>
+						<set-body>Access denied due to missing or invalid API key.</set-body>
+					</return-response>
+				</when>
+			<otherwise>
+				<!-- Update subscription context based on user identity -->
+				<set-variable name="user-id" value="@(context.Variables.GetValueOrDefault<string>("subscription-name", "api-key-user"))" />
+			</otherwise>
+			</choose>
+			<trace source="User-Authenticated" severity="information">
+				<message>@($"UAIG - API-Key authenticated request {context.Variables["subscription-name"]} accessing {context.Request.Url.Path}")</message>
+			</trace>
+		</when>
+		<!-- Authenticate with JWT bearer token -->
+		<when condition="@(context.Variables.GetValueOrDefault<string>("auth-type", string.Empty).Equals("jwt", StringComparison.OrdinalIgnoreCase))">
+			<!-- JWT configuration from APIM named values -->
+			<set-variable name="jwt-audience" value="{{JWT-AppRegistrationId}}" />
+			<set-variable name="jwt-openid-config" value="{{JWT-OpenIdConfigUrl}}" />
+			<set-variable name="jwt-issuer" value="{{JWT-Issuer}}" />
+			<!-- Verify JWT settings are configured -->
+			<choose>
+				<when condition="@{
+					var audience = context.Variables.GetValueOrDefault<string>("jwt-audience");
+					var openidConfig = context.Variables.GetValueOrDefault<string>("jwt-openid-config");
+					var issuer = context.Variables.GetValueOrDefault<string>("jwt-issuer");
+					return string.IsNullOrEmpty(audience) || string.IsNullOrEmpty(openidConfig) || string.IsNullOrEmpty(issuer);
+				}">
+					<return-response>
+						<set-status code="503" reason="Service Unavailable" />
+						<set-header name="Content-Type" exists-action="override">
+							<value>application/json</value>
+						</set-header>
+						<set-body>JWT authentication is not configured properly.</set-body>
+				</return-response>
+			</when>
+		</choose>
+		<!-- JWT bearer token authorization using APIM built-in policy -->
+		<!-- Reference: https://learn.microsoft.com/azure/api-management/validate-jwt-policy -->
+			<validate-jwt header-name="Authorization" require-scheme="Bearer" output-token-variable-name="validated-jwt" failed-validation-httpcode="401" failed-validation-error-message="Access denied due to invalid or expired JWT bearer token.">
+				<openid-config url="@(context.Variables.GetValueOrDefault<string>("jwt-openid-config"))" />
+				<audiences>
+					<audience>@(context.Variables.GetValueOrDefault<string>("jwt-audience"))</audience>
+				</audiences>
+				<issuers>
+					<issuer>@(context.Variables.GetValueOrDefault<string>("jwt-issuer"))</issuer>
+				</issuers>
+			</validate-jwt>
+			<!-- Get identity from JWT bearer token -->
+			<!-- Note: This sample uses client credentials flow (app-to-app), so we extract the app ID (azp claim). -->
+			<!-- For user sign-in flows, use claims like: preferred_username, upn, or email -->
+			<set-variable name="user-id" value="@{
+				var jwt = (Jwt)context.Variables["validated-jwt"];
+				return jwt.Claims.GetValueOrDefault("azp", "anonymous");
+			}" />
+			<!-- Update subscription context for JWT users -->
+			<set-variable name="subscription-name" value="@(context.Variables.GetValueOrDefault<string>("user-id", "anonymous"))" />
+			<trace source="Authentication-Success" severity="information">
+				<message>@($"UAIG - JWT authenticated request {context.Variables.GetValueOrDefault<string>("user-id", "anonymous")} accessing {context.Request.Url.Path}")</message>
+			</trace>
+		</when>
+		<!-- Unauthenticated users -->
+		<otherwise>
+			<trace source="Authentication-Error" severity="error">
+				<message>@($"UAIG - Unauthenticated request to {context.Request.Method} {context.Request.Url.Path} from {context.Request.IpAddress}")</message>
+			</trace>
+			<return-response>
+				<set-status code="401" reason="Unauthorized" />
+				<set-header name="Content-Type" exists-action="override">
+					<value>application/json</value>
+				</set-header>
+				<set-body>Authentication required. Provide an API key via 'api-key' header or a JWT bearer token via 'Authorization' header.</set-body>
+			</return-response>
+		</otherwise>
+	</choose>
+	<!-- Backend authentication with managed identity using APIM built-in policy -->
+	<!-- Reference: https://learn.microsoft.com/azure/api-management/authentication-managed-identity-policy -->
+	<authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" />
+	<set-header name="Authorization" exists-action="override">
+		<value>@("Bearer " + context.Variables["managed-id-access-token"])</value>
+	</set-header>
+</fragment>

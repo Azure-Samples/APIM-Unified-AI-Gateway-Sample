@@ -1,0 +1,74 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# Azure Developer CLI (azd) template for Unified AI Gateway sample
+# Minimal scaffold wiring to Terraform for infra provisioning.
+
+name: unified-ai-gateway-sample
+
+infra:
+  provider: terraform
+  path: ./Infra
+
+hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: |
+        pwsh -ExecutionPolicy Bypass -File "Scripts/check-terraform-version.ps1"
+        pwsh -ExecutionPolicy Bypass -File "Scripts/keyvault-lookup.ps1"
+    posix:
+      shell: pwsh
+      run: |
+        pwsh -ExecutionPolicy Bypass -File "Scripts/check-terraform-version.ps1"
+        pwsh -ExecutionPolicy Bypass -File "Scripts/keyvault-lookup.ps1"
+  
+  postprovision:
+    windows:
+      shell: pwsh
+      run: |
+        pwsh -ExecutionPolicy Bypass -File "Scripts/set-environment-variables.ps1"
+      secrets:
+        apim_subscription_key: apim_subscription_key_kv_ref
+        entra_app_client_secret: entra_app_client_secret_kv_ref
+        foundry_inference_key: foundry_inference_key_kv_ref
+        gemini_api_key: gemini_secret_kv_ref
+        foundry_premium_region1_key: foundry_premium_region1_key_kv_ref
+        foundry_premium_region2_key: foundry_premium_region2_key_kv_ref
+        foundry_premium_region3_key: foundry_premium_region3_key_kv_ref
+        foundry_standard_region1_key: foundry_standard_region1_key_kv_ref
+        foundry_standard_region2_key: foundry_standard_region2_key_kv_ref
+        foundry_standard_region3_key: foundry_standard_region3_key_kv_ref
+    posix:
+      shell: pwsh
+      run: |
+        pwsh -ExecutionPolicy Bypass -File "Scripts/set-environment-variables.ps1"
+      secrets:
+        apim_subscription_key: apim_subscription_key_kv_ref
+        entra_app_client_secret: entra_app_client_secret_kv_ref
+        foundry_inference_key: foundry_inference_key_kv_ref
+        gemini_api_key: gemini_secret_kv_ref
+        foundry_premium_region1_key: foundry_premium_region1_key_kv_ref
+        foundry_premium_region2_key: foundry_premium_region2_key_kv_ref
+        foundry_premium_region3_key: foundry_premium_region3_key_kv_ref
+        foundry_standard_region1_key: foundry_standard_region1_key_kv_ref
+        foundry_standard_region2_key: foundry_standard_region2_key_kv_ref
+        foundry_standard_region3_key: foundry_standard_region3_key_kv_ref
+  
+  postdown:
+    windows:
+      shell: pwsh
+      run: |
+        if (Test-Path ".vscode/settings.json") {
+          Remove-Item ".vscode/settings.json" -Force
+          Write-Host "✅ Deleted .vscode/settings.json" -ForegroundColor Green
+        }
+    posix:
+      shell: pwsh
+      run: |
+        if (Test-Path ".vscode/settings.json") {
+          Remove-Item ".vscode/settings.json" -Force
+          Write-Host "✅ Deleted .vscode/settings.json" -ForegroundColor Green
+        }
+
+

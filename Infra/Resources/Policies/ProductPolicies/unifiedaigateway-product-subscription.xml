@@ -1,0 +1,48 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!--====================================================================================================
+	Product Policy: unifiedai-product-subscription
+	====================================================================================================
+    
+	PURPOSE:
+	Simplified product-level policy that ensures API access through valid product.
+	Sets product context variables for API-level fragment processing.
+	
+	FEATURES:
+	- Product access validation (prevents direct API access)
+	- All fragment orchestration handled by API-level policy
+	
+	PRODUCT CONFIGURATION:
+	- Product Type: subscription
+	- Authentication: API keys (validated by API-level fragments)
+	
+	SCOPE: Product Level
+	APPLIES TO: All APIs associated with this product
+-->
+<policies>
+    <inbound>
+        <!-- Ensure access is through valid product -->
+        <base />
+        <!-- Product access validation -->
+        <choose>
+            <when condition="@(context.Product == null)">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>text/plain</value>
+                    </set-header>
+                    <set-body>Access denied. API requests must be made through a product subscription.</set-body>
+                </return-response>
+            </when>
+        </choose>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

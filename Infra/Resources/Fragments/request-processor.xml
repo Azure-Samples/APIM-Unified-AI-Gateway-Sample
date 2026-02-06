@@ -1,0 +1,173 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+====================================================================================================
+Request Processor Fragment
+====================================================================================================
+
+SUMMARY:
+	Analyzes incoming requests to extract routing context (API type, model, path) and parse JSON bodies.
+	Provides foundational variables used by all downstream policy fragments.
+	Implements path validation to reject requests that don't match configured API types.
+
+INPUT VARIABLES:
+	- context.Request.Url.Path: Request path to analyze
+	- context.Request.Body: Request body for JSON parsing
+	- context.Api.Path: API path prefix to remove
+	- config-api-types: API type configuration from central-cache-manager
+
+OUTPUT VARIABLES:
+	- api-type: Detected API type (openai|inference|responses|responses-v1|openai-v1|geminiopenai)
+	- model-id: Extracted model identifier from path or body (lowercase)
+	- routing-processed-path: Request path with product prefix removed (always has leading slash)
+	- response-id: Response ID for GET/DELETE operations on responses API
+	- parsed-request-body: Parsed JSON object from request body (empty JObject for GET/DELETE or parse failure)
+	- selected-api-version: API version for backend requests (model-specific or api-type default)
+	- is-streaming: Whether request has stream:true ("true"/"false")
+
+DOWNSTREAM CONSUMERS:
+	- path-builder fragment: Uses api-type, routing-processed-path, response-id for backend path building
+	- backend-selector fragment: Uses api-type, model-id, parsed-request-body for routing
+	- diagnostic-headers fragment: Uses routing information for debugging
+
+UPSTREAM DEPENDENCIES:
+	- central-cache-manager fragment: Provides config-api-types for API type detection
+====================================================================================================
+-->
+<fragment fragment-id="request-processor">
+	<!-- Remove API path prefix: /unified-ai/openai/chat/completions -> /openai/chat/completions -->
+	<set-variable name="routing-processed-path" value="@(context.Request.Url.Path.Replace(context.Api.Path, "").TrimStart('/').Insert(0, "/"))" />
+	
+	<!-- Determine API type from request path - returns empty string if no match found -->
+	<set-variable name="api-type" value="@{
+		try {
+			var path = context.Variables.GetValueOrDefault<string>("routing-processed-path", String.Empty).ToLower();
+			var match = context.Variables.GetValueOrDefault<JObject>("config-api-types")?.Children<JProperty>()
+				.FirstOrDefault(a => {
+					var basePath = a.Value["base-path"]?.ToString();
+					return !String.IsNullOrEmpty(basePath) && path.Contains(basePath);
+				});
+			return match?.Name ?? String.Empty;
+		} catch { return String.Empty; }
+	}" />
+	<!--Reject requests that don't match any configured API type base-path.-->
+	<choose>
+		<when condition="@(String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("api-type", String.Empty)))">
+			<trace source="Request-Processor-Blocked" severity="error">
+				<message>@($"UAIG - Blocked request to {context.Request.Method} {context.Variables.GetValueOrDefault<string>("routing-processed-path", "unknown")} from {context.Request.IpAddress}")</message>
+			</trace>
+			<return-response>
+				<set-status code="403" reason="Forbidden" />
+				<set-header name="Content-Type" exists-action="override">
+					<value>application/json</value>
+				</set-header>
+				<set-body>{"error": {"code": "PathNotAllowed", "message": "The requested path is not allowed."}}</set-body>
+			</return-response>
+		</when>
+	</choose>
+	
+	<!-- Use API type to look up base path and path segment from metadata configuration -->
+	<set-variable name="api-type-config" value="@{
+		var apiType = context.Variables.GetValueOrDefault<string>("api-type", "openai");
+		return context.Variables.GetValueOrDefault<JObject>("config-api-types")?[apiType] as JObject;
+	}" />
+	<set-variable name="api-base-path" value="@(context.Variables.GetValueOrDefault<JObject>("api-type-config")?["base-path"]?.ToString() ?? "/openai")" />
+	<set-variable name="api-path-segment" value="@(context.Variables.GetValueOrDefault<JObject>("api-type-config")?["path-segment"]?.ToString() ?? String.Empty)" />
+	
+	<!-- Get request body -->
+	<choose>
+		<when condition="@(context.Request.Method == "GET" || context.Request.Method == "DELETE")">
+			<!-- No body for these methods -->
+		</when>
+		<otherwise>
+			<!-- Parse request body as JSON -->
+			<set-variable name="parsed-request-body" value="@{
+				try {
+					return JObject.Parse(context.Request.Body.As<string>(preserveContent: true));
+				} catch {
+					return new JObject();
+				}
+			}" />
+			<!-- Detect if request is streaming -->
+			<set-variable name="is-streaming" value="@{
+				var body = context.Variables.GetValueOrDefault<JObject>("parsed-request-body");
+				var streamValue = body?["stream"];
+				return streamValue != null && streamValue.Type == JTokenType.Boolean && streamValue.Value<bool>();
+			}" />
+		</otherwise>
+	</choose>
+	
+	<!-- Determine model id from the request body or path -->
+	<set-variable name="model-id" value="@{
+		try {
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type", "openai");
+			var method = context.Request.Method;
+			
+			// Responses API GET/DELETE don't need a model
+			if (apiType.StartsWith("responses") && (method == "GET" || method == "DELETE")) {
+				return "not-applicable";
+			}
+			
+			// Try body first
+			var bodyModel = context.Variables.GetValueOrDefault<JObject>("parsed-request-body")?["model"]?.ToString();
+			if (!String.IsNullOrEmpty(bodyModel)) {
+				return bodyModel.ToLower();
+			}
+			
+			// Try path
+			var segment = context.Variables.GetValueOrDefault<string>("api-path-segment", String.Empty);
+			if (!String.IsNullOrEmpty(segment)) {
+				var path = context.Variables.GetValueOrDefault<string>("routing-processed-path", String.Empty).ToLower();
+				var idx = path.IndexOf(segment + "/");
+				if (idx >= 0) {
+					return path.Substring(idx + segment.Length + 1).Split('/')[0];
+				}
+			}
+		} catch { }
+		return "unknown";
+	}" />
+	
+	<!-- Determine response ID from request path -->
+	<set-variable name="response-id" value="@{
+		var apiType = context.Variables.GetValueOrDefault<string>("api-type", "openai");
+		var method = context.Request.Method;
+		if (!apiType.StartsWith("responses") || (method != "GET" && method != "DELETE")) {
+			return String.Empty;
+		}
+		var path = context.Variables.GetValueOrDefault<string>("routing-processed-path", String.Empty);
+		return path.Substring(path.LastIndexOf('/') + 1);
+	}" />
+	
+	<!-- Use model id and API type to look up API version from metadata configuration -->
+	<set-variable name="selected-api-version" value="@{
+		var apiType = context.Variables.GetValueOrDefault<string>("api-type", "openai");
+		var modelId = context.Variables.GetValueOrDefault<string>("model-id", "unknown");
+		var models = context.Variables.GetValueOrDefault<JObject>("config-models");
+		var apiTypeConfig = context.Variables.GetValueOrDefault<JObject>("api-type-config");
+		
+		// Model-specific versions for inference and openai api-types
+		var modelConfig = models?[modelId];
+		if (modelConfig != null) {
+			if (apiType.Equals("inference", StringComparison.OrdinalIgnoreCase) && modelConfig["inference-api-version"] != null) {
+				return modelConfig["inference-api-version"].ToString();
+			}
+			if (apiType.Equals("openai", StringComparison.OrdinalIgnoreCase) && modelConfig["api-version"] != null) {
+				return modelConfig["api-version"].ToString();
+			}
+		}
+		
+		// Other api-types use api-type config version
+		var apiTypeVersion = apiTypeConfig?["api-version"]?.ToString();
+		if (!String.IsNullOrEmpty(apiTypeVersion)) {
+			return apiTypeVersion;
+		}
+		
+		// Fallback
+		return apiType.Equals("responses", StringComparison.OrdinalIgnoreCase) ? "2025-03-01-preview" : "2024-10-21";
+	}" />
+	
+	<!-- Trace logging -->
+	<trace source="Request-Processor" severity="information">
+		<message>@($"UAIG - Request processed: {context.Variables.GetValueOrDefault<string>("routing-processed-path", "n/a")} | API: {context.Variables.GetValueOrDefault<string>("api-type", "n/a")} | Model: {context.Variables.GetValueOrDefault<string>("model-id", "n/a")} | Streaming: {context.Variables.GetValueOrDefault<bool>("is-streaming", false)}")</message>
+	</trace>
+</fragment>

@@ -1,0 +1,94 @@
+{
+    "openapi": "3.0.1",
+    "info": {
+        "title": "unifiedaigateway-wildcard-api",
+        "description": "Unified AI Gateway to support a variety of APIs using policy based routing: OpenAI API, OpenAI v1 API, Model Inference API, Responses API, Assistants API, Vector Stores API, Uploads API, Audio API, Batch API, and Azure AI Projects API.",
+        "version": "1.0"
+    },
+    "servers": [{
+        "url": "https://unifedaigateway-apim.azure-api.net/unified-ai"
+    }],
+    "paths": {
+        "/*": {
+            "get": {
+                "summary": "Wildcard GET operations",
+                "description": "All GET operations are handled by policy-based routing",
+                "operationId": "getOperations",
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    }
+                }
+            },
+            "post": {
+                "summary": "Wildcard POST operations",
+                "description": "All POST operations are handled by policy-based routing",
+                "operationId": "postOperations",
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    }
+                }
+            },
+            "put": {
+                "summary": "Wildcard PUT operations",
+                "description": "All PUT operations are handled by policy-based routing",
+                "operationId": "putOperations",
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    }
+                }
+            },
+            "patch": {
+                "summary": "Wildcard PATCH operations",
+                "description": "All PATCH operations are handled by policy-based routing",
+                "operationId": "patchOperations",
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Wildcard DELETE operations",
+                "description": "All DELETE operations are handled by policy-based routing",
+                "operationId": "deleteOperations",
+                "responses": {
+                    "200": {
+                        "description": "Successful response"
+                    }
+                }
+            },
+            "options": {
+                "summary": "Wildcard OPTIONS operations",
+                "description": "CORS preflight requests",
+                "operationId": "optionsOperations",
+                "responses": {
+                    "200": {
+                        "description": "CORS headers returned"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "apiKeyHeader": {
+                "type": "apiKey",
+                "name": "api-key",
+                "in": "header"
+            },
+            "apiKeyQuery": {
+                "type": "apiKey",
+                "name": "subscription-key",
+                "in": "query"
+            }
+        }
+    },
+    "security": [{}, {
+        "apiKeyHeader": []
+    }, {
+        "apiKeyQuery": []
+    }]
+}

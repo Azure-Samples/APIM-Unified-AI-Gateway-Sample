@@ -1,0 +1,84 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!--====================================================================================================
+    API Policy: unifiedaigateway-wildcard-api
+    ====================================================================================================
+    
+    PURPOSE:
+    Main orchestration policy for the Unified AI Gateway that coordinates all policy fragments
+    to provide comprehensive AI model routing, authentication, rate limiting, and monitoring.
+    Handles the complete request/response lifecycle for all AI API types.
+    
+    API CONFIGURATION:
+    - API Type: Wildcard (handles multiple AI API endpoints)
+    - Authentication: JWT tokens and API keys (via product association)
+    - Subscription: Required through associated products
+    
+    SCOPE: API Level
+    APPLIES TO: All operations on this wildcard API
+    
+    FRAGMENT EXECUTION ORDER:
+    1. central-cache-manager: Configuration loading and caching
+    2. request-processor: Request analysis (URL routing + body parsing)
+    3. security-handler: Authentication and authorization
+    4. backend-selector: Model and backend selection
+    5. path-builder: Backend path construction
+    6. token-limiter: LLM token-based throttling and quota management
+    7. token-logger: LLM token usage metrics (via llm-emit-token-metric policy)
+    8. diagnostic-headers: Response header injection (outbound)
+-->
+<policies>
+    <inbound>
+        <base />
+        <choose>
+            <when condition="@(context.Product == null)">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>text/plain</value>
+                    </set-header>
+                    <set-body>Access denied. API requests must be made through a product subscription.</set-body>
+                </return-response>
+            </when>
+            <otherwise />
+        </choose>
+        <include-fragment fragment-id="metadata-config" />
+        <include-fragment fragment-id="central-cache-manager" />
+        <include-fragment fragment-id="request-processor" />
+        <include-fragment fragment-id="security-handler" />
+        <include-fragment fragment-id="backend-selector" />
+        <include-fragment fragment-id="path-builder" />
+        <include-fragment fragment-id="token-limiter" />
+        <include-fragment fragment-id="token-logger" />
+        <!-- Calculate request timeout based on model config and streaming status -->
+        <set-variable name="request-timeout" value="@{
+            var models = context.Variables.GetValueOrDefault<JObject>("config-models");
+            var timeoutSettings = context.Variables.GetValueOrDefault<JObject>("config-timeout-settings");
+            var model = context.Variables.GetValueOrDefault<string>("model-id");
+            var streaming = context.Variables.GetValueOrDefault<bool>("is-streaming", false);
+
+            // Get model-specific timeout (fallback to 120 if not configured)
+            var modelConfig = models?[model];
+            var baseTimeout = modelConfig?["timeout"]?.Value<int>() ?? 120;
+
+            // Apply streaming multiplier if applicable
+            if (streaming) {
+                var multiplier = timeoutSettings?["streaming-multiplier"]?.Value<int>() ?? 3;
+                return baseTimeout * multiplier;
+            }
+            return baseTimeout;
+        }" />
+    </inbound>
+    <backend>
+        <!-- Config-driven timeout with streaming support -->
+        <forward-request timeout="@(context.Variables.GetValueOrDefault<int>("request-timeout", 120))" />
+    </backend>
+    <outbound>
+        <base />
+        <include-fragment fragment-id="diagnostic-headers" />
+    </outbound>
+    <on-error>
+        <base />
+        <include-fragment fragment-id="diagnostic-headers" />
+    </on-error>
+</policies>

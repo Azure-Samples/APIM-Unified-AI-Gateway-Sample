@@ -1,0 +1,32 @@
+{
+  "rest-client.environmentVariables": {
+    "your-env-name": {
+      "apim_gateway_url": "your-apim-gateway-url",
+      "apim_name": "your-apim-name",
+      "apim_resource_id": "your-apim-resource-id",
+      "apim_subscription_key": "your-apim-subscription-key",
+      "azure_subscription_id": "your-azure-subscription-id",
+      "entra_app_client_secret": "your-entra-app-client-secret",
+      "entra_app_id": "your-entra-app-id",
+      "entra_app_identifier_uri": "your-entra-app-identifier-uri",
+      "foundry_key": "your-foundry-key",
+      "gemini_api_key": "your-gemini-api-key",
+      "gemini_endpoint": "your-gemini-endpoint",
+      "key_vault_name": "your-key-vault-name",
+      "foundry_standard_region1_key": "your-foundry-standard-region1-key",
+      "foundry_standard_region2_key": "your-foundry-standard-region2-key",
+      "foundry_standard_region3_key": "your-foundry-standard-region3-key",
+      "foundry_standard_region1_endpoint": "your-foundry-standard-region1-endpoint",
+      "foundry_standard_region2_endpoint": "your-foundry-standard-region2-endpoint",
+      "foundry_standard_region3_endpoint": "your-foundry-standard-region3-endpoint",
+      "foundry_premium_region1_key": "your-foundry-premium-region1-key",
+      "foundry_premium_region2_key": "your-foundry-premium-region2-key",
+      "foundry_premium_region3_key": "your-foundry-premium-region3-key",
+      "foundry_premium_region1_endpoint": "your-foundry-premium-region1-endpoint",
+      "foundry_premium_region2_endpoint": "your-foundry-premium-region2-endpoint",
+      "foundry_premium_region3_endpoint": "your-foundry-premium-region3-endpoint",
+      "foundry_inference_endpoint": "your-foundry-inference-endpoint",
+      "tenant_id": "your-tenant-id"
+    }
+  }
+}

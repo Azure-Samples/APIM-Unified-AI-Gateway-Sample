@@ -1,0 +1,76 @@
+name: Terraform Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Infra/**'
+      - '.github/workflows/terraform-validate.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Infra/**'
+      - '.github/workflows/terraform-validate.yml'
+  workflow_dispatch:
+
+jobs:
+  terraform-validate:
+    name: Validate Terraform Configuration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Infra
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~1.14.3
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Post validation results
+        if: always()
+        run: |
+          echo "## Terraform Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.fmt.outcome }}" == "success" ]; then
+            echo "✅ **Format Check:** Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Format Check:** Failed - Run \`terraform fmt -recursive\` to fix formatting" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.init.outcome }}" == "success" ]; then
+            echo "✅ **Initialization:** Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Initialization:** Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.validate.outcome }}" == "success" ]; then
+            echo "✅ **Validation:** Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Validation:** Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail if validation failed
+        if: steps.fmt.outcome != 'success' || steps.validate.outcome != 'success'
+        run: |
+          echo "Terraform validation failed. Please fix the issues and try again."
+          exit 1

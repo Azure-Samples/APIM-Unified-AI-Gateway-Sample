@@ -1,0 +1,97 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+	====================================================================================================
+	Token Limiter Fragment
+	====================================================================================================
+
+	SUMMARY:
+		Enforces tier-based token consumption limits based on user/subscription.
+		
+	INPUT VARIABLES:
+		- api-type: API type classification (openai, inference, responses, geminiopenai)
+		- auth-type: Authentication method used (api-key, jwt, none)
+		- config-models: Cached model configuration from central-cache-manager
+		- model-id: Identifier of the AI model being used
+		- subscription-name: Subscription name for tracking
+		- user-id: User identifier from JWT authentication
+
+	OUTPUT VARIABLES:
+		- model-tier: Extracted model tier (standard, premium)
+		- token-limit-key: Unique key for token limiting (user/subscription based)
+		- remaining-tokens: Remaining tokens in current minute window
+		- remaining-quota-tokens: Remaining tokens in quota period
+		- tokens-consumed: Tokens consumed by current request (set after response)
+		
+	DOWNSTREAM CONSUMERS:
+		- token-logger fragment: Uses token consumption for metrics
+		- diagnostic-headers fragment: Uses token-limit variables for debug headers
+		
+	UPSTREAM DEPENDENCIES:
+		- request-processor fragment: Provides api-type and model-id
+		- central-cache-manager fragment: Provides config-models for tier lookup
+		- security-handler fragment: Provides auth-type, user-id, and subscription-name
+
+	REFERENCE:
+		https://learn.microsoft.com/en-us/azure/api-management/llm-token-limit-policy
+	====================================================================================================
+	-->
+<fragment fragment-id="token-limiter">
+	<!-- Extract model tier from configuration -->
+	<set-variable name="model-tier" value="@{
+		var modelId = context.Variables.GetValueOrDefault<string>("model-id", "unknown").ToLower();
+		var models = context.Variables.GetValueOrDefault<JObject>("config-models");
+		
+		var tier = models?[modelId]?["tier"]?.ToString();
+		return !string.IsNullOrEmpty(tier) ? tier : "standard";
+	}" />
+	<!-- Token limit key generation with JWT user support -->
+	<set-variable name="token-limit-key" value="@{
+		var authType = context.Variables.GetValueOrDefault<string>("auth-type", "none");
+		var tier = context.Variables.GetValueOrDefault<string>("model-tier", "standard");
+		
+		if (authType.Equals("jwt", StringComparison.OrdinalIgnoreCase)) {
+			var userId = context.Variables.GetValueOrDefault<string>("user-id", "anonymous");
+			return $"uaig-jwt-{userId}-{tier}";
+		}
+		if (authType.Equals("api-key", StringComparison.OrdinalIgnoreCase)) {
+			return $"uaig-sub-{context.Subscription?.Id ?? "anonymous"}-{tier}";
+		}
+		return $"uaig-ip-{context.Request.IpAddress}-{tier}";
+	}" />
+	<!-- Log token limit application for analytics -->
+	<trace source="Token-Limiter" severity="information">
+		<message>@($"UAIG - Token limits applied for {context.Variables.GetValueOrDefault<string>("model-tier", "standard")} tier model {context.Variables.GetValueOrDefault<string>("model-id", "unknown")}")</message>
+	</trace>
+	<!-- Apply LLM token limit policy based on tier
+	     Note: llm-token-limit doesn't allow policy expressions for tokens-per-minute/token-quota
+	     so we use choose blocks to apply tier-specific limits with literal values.
+	-->
+	<choose>
+		<when condition="@(context.Variables.GetValueOrDefault<string>("model-tier", "standard").Equals("premium", StringComparison.OrdinalIgnoreCase))">
+			<llm-token-limit
+				counter-key="@(context.Variables.GetValueOrDefault<string>("token-limit-key", "default-key"))"
+				tokens-per-minute="2000"
+				token-quota="10000"
+				token-quota-period="Hourly"
+				estimate-prompt-tokens="true"
+				retry-after-header-name="UAIG-Retry-After"
+				remaining-tokens-variable-name="remaining-tokens"
+				remaining-quota-tokens-variable-name="remaining-quota-tokens"
+				tokens-consumed-variable-name="tokens-consumed" />
+		</when>
+		<otherwise>
+			<!-- Standard tier (default) -->
+			<llm-token-limit
+				counter-key="@(context.Variables.GetValueOrDefault<string>("token-limit-key", "default-key"))"
+				tokens-per-minute="1000"
+				token-quota="5000"
+				token-quota-period="Hourly"
+				estimate-prompt-tokens="true"
+				retry-after-header-name="UAIG-Retry-After"
+				remaining-tokens-variable-name="remaining-tokens"
+				remaining-quota-tokens-variable-name="remaining-quota-tokens"
+				tokens-consumed-variable-name="tokens-consumed" />
+		</otherwise>
+	</choose>
+</fragment>

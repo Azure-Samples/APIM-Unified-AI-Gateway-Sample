@@ -1,0 +1,134 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+### APIM Debug Tracing Tests - Example showing comprehensive circuit breaker analysis
+### 
+### This test collection focuses specifically on APIM debug tracing functionality
+### for analyzing circuit breaker behavior and policy execution flow.
+###
+### Prerequisites:
+### 1. Run `azd up` to provision the infrastructure and create the VS Code settings file with all required variables
+### 2. Ensure your APIM instance and backends are successfully deployed
+###
+### Service Principal Permissions (automatically configured):
+### ✅ Uses the SAME App Registration created by the sample for JWT authentication
+### ✅ The Terraform deployment automatically assigns the underlying Service Principal, the "Contributor" role for accessing the APIM service
+### ✅ No manual role assignment required - everything is set up by `azd up`
+### 
+### Manual Service Principal Setup (only if needed for troubleshooting):
+### If you need to manually verify or recreate the role assignment:
+### 1. Search "App registrations" → Find app named "uai-gateway-[random]" or search by Application/Client ID
+### 2. Copy the Application (Client) ID from the App Registration overview
+### 3. Search "Enterprise applications" → Search by the Application (Client) ID from step 2  
+### 4. This shows the Service Principal - copy its Object ID for role assignments
+### 5. Azure CLI: az role assignment create --assignee <service-principal-object-id> --role "Contributor" --scope <apim-resource-id>
+### 6. Azure Portal: APIM Service → Access control (IAM) → Add role assignment
+###
+### Test Coverage:
+### - Azure Management API authentication for debug credentials
+### - APIM debug token generation and usage  
+### - Behavior and policy execution analysis with debug tracing
+###
+### Usage:
+### 1. First run "Get Management API Token" request to authenticate
+### 2. Run "Get Debug Credentials" request to obtain debug token
+### 3. Execute debug-enabled requests to generate traces
+### 4. Use "Retrieve APIM Trace" to analyze execution flow
+###
+### Learn More: https://learn.microsoft.com/azure/api-management/api-management-howto-api-inspector#enable-tracing-for-an-api
+
+# Variables from VS Code REST Client settings
+@apimEndpoint = {{apim_gateway_url}}/unified-ai
+@apiVersion = 2025-01-01-preview
+# APIM subscription key from VS Code settings
+@apimSubKey = {{apim_subscription_key}}
+
+###############################################################################
+### Azure Management API Authentication
+###############################################################################
+
+### Get Management API Token for Azure Resource Management
+# @name getManagementToken
+# Gets token for Azure Management API endpoint
+# This token is required for accessing APIM management operations like debug credentials
+POST https://login.microsoftonline.com/{{tenant_id}}/oauth2/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id={{entra_app_id}}&client_secret={{entra_app_client_secret}}&resource=https%3A%2F%2Fmanagement.azure.com%2F
+
+###
+
+###############################################################################
+### APIM Debug Credentials Management
+###############################################################################
+
+### Get Debug Credentials for APIM Gateway  
+# @name listDebugCredentials
+# Service Principal permissions are automatically configured by Terraform deployment
+# Debug tokens have limited lifetime, refresh when needed
+POST https://management.azure.com{{apim_resource_id}}/gateways/managed/listDebugCredentials?api-version=2024-05-01
+Authorization: Bearer {{getManagementToken.response.body.access_token}}
+Content-Type: application/json
+
+{
+    "apiId": "{{apim_resource_id}}/apis/gateway-wildcard",
+    "purposes": ["tracing"]
+}
+
+### Extract debug token from response
+@debugToken = {{listDebugCredentials.response.body.token}}
+
+###
+
+###############################################################################
+### Debug Tracing Tests with APIM Debug Token
+###############################################################################
+
+### Test: OpenAI Chat Completion with Debug Tracing
+# This test demonstrates APIM debug tracing functionality
+# The Apim-Debug-Authorization header enables comprehensive tracing of the request flow
+# 
+# IMPORTANT: Look for the "Apim-Trace-Id" header in the response!
+# This header contains the trace ID needed to retrieve detailed execution traces
+# The trace ID is automatically captured below for use in trace retrieval
+# 
+# NOTE: First run "listDebugCredentials" above to get a fresh debug token!
+# @name openaiDebugTest
+POST {{apimEndpoint}}/openai/deployments/gpt-4.1-mini/chat/completions?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Apim-Debug-Authorization: {{debugToken}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4.1-mini",
+    "messages": [
+        {
+            "role": "user",
+      "content": "Test OpenAI API with debug tracing"
+        }
+    ],
+  "max_tokens": 50
+}
+
+### Extract trace ID from OpenAI debug test response
+@traceId = {{openaiDebugTest.response.headers.Apim-Trace-Id}}
+
+###
+
+###############################################################################
+### APIM Trace Retrieval and Analysis
+###############################################################################
+
+### Retrieve APIM Trace (Automatically uses trace ID from OpenAI test)
+# @name getTrace
+# Retrieves the detailed trace information using the trace ID automatically captured from the OpenAI debug test
+# This will show the complete policy execution flow, including all fragments and their execution order
+POST https://management.azure.com{{apim_resource_id}}/gateways/managed/listTrace?api-version=2023-05-01-preview
+Authorization: Bearer {{getManagementToken.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "traceId": "{{traceId}}"
+}
+
+###

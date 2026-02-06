@@ -1,0 +1,138 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+### Unified AI Gateway - Cache Configuration Tests
+### 
+### This test collection validates the metadata-config caching behavior including cache hits, 
+### cache stores, cache skip, and cache refresh operations.
+### Tests cross-request caching, cache skip headers, cache refresh headers, and cache status monitoring.
+###
+### Cache Behavior:
+### - Default: Uses APIM built-in cache with configurable duration (default: 300 seconds)
+### - Cache key: "metadata-config-v{version}" (version-based for automatic invalidation)
+### - Version: Configured in cache-settings.config-version (change to invalidate cache)
+### - TTL: Configured in cache-settings.ttl-seconds (cache duration in seconds)
+### - Bypass Header: UAIG-Config-Cache-Bypass: true (bypasses cache for single request)
+### - Trace sources: Central-Cache-Manager-Bypass, Central-Cache-Manager-Loaded, Central-Cache-Manager-Store
+### - UAIG-Cache-Operation header values:
+###     - bypass: Cache was skipped entirely (UAIG-Config-Cache-Bypass header was set to true)
+###     - loaded: Configuration was retrieved from cache (cache hit)
+###     - store: Configuration was parsed from fragment and stored to cache (cache miss or refresh)
+### 
+### Prerequisites (see ReadMe for details):
+### 1. Run `azd up` to provision the infrastructure and create the VS Code settings file with all required variables
+### 2. Ensure your APIM instance and backends are successfully deployed
+###
+### Usage:
+### - Click "Send Request" above each request in VS Code with REST Client extension
+### - Expected debug headers are documented for each test to validate cache behavior
+### - Use UAIG-Config-Cache-Bypass header to bypass cache entirely (no read or write)
+### - To refresh cache: change cache-settings.config-version in Metadata-Config.xml and run `azd up` to redeploy
+
+# Variables from VS Code REST Client settings
+@apimEndpoint = {{apim_gateway_url}}/unified-ai
+@apiVersion = 2025-01-01-preview
+
+# APIM subscription key from VS Code settings
+@apimSubKey = {{apim_subscription_key}}
+
+# Model deployment for testing
+@deploymentName = gpt-4.1-mini
+
+###############################################################################
+### Test 1: Normal Request - Cache Store and Cache Load
+###############################################################################
+
+### 1a. First request - should STORE to cache (if cache is empty or expired)
+# 
+# Note: To guarantee fresh cache for testing:
+# 1. Change cache-settings.config-version in Metadata-Config.xml and run `azd up` to redeploy, OR
+# 2. Wait for cache TTL to expire (default: 300 seconds)
+# 
+# Expected Debug Headers:
+# UAIG-Cache-Operation: store
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Model-ID: gpt-4.1-mini
+#
+# Trace (App Insights): Central-Cache-Manager-Store, message: "Configuration loaded for {path}"
+POST {{apimEndpoint}}/openai/deployments/{{deploymentName}}/chat/completions?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "Say 'Cache Test 1' please"
+        }
+    ],
+    "max_tokens": 10
+}
+
+### 1b. Second identical request - should be CACHE HIT (if within 300 second window)
+# Expected Debug Headers:
+# UAIG-Cache-Operation: loaded
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Model-ID: gpt-4.1-mini
+#
+# Trace (App Insights): Central-Cache-Manager-Loaded, message: "Configuration loaded from cache for {path}"
+POST {{apimEndpoint}}/openai/deployments/{{deploymentName}}/chat/completions?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "Say 'Cache Test 1b' please"
+        }
+    ],
+    "max_tokens": 10
+}
+
+###############################################################################
+### Test 2: Cache Skip Using UAIG-Config-Cache-Bypass Header
+###############################################################################
+
+### 2a. Request with cache bypass header - bypasses cache entirely
+# Expected Debug Headers:
+# UAIG-Cache-Operation: bypass
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Model-ID: gpt-4.1-mini
+#
+# Trace (App Insights): Central-Cache-Manager-Bypass, message: "Cache bypass requested for {path}"
+POST {{apimEndpoint}}/openai/deployments/{{deploymentName}}/chat/completions?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+UAIG-Config-Cache-Bypass: true
+Content-Type: application/json
+
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "Say 'cache skip Test' please"
+        }
+    ],
+    "max_tokens": 10
+}
+
+### 2b. Request with cache bypass header set to 'false' (should use cache normally)
+# Expected Debug Headers:
+# UAIG-Cache-Operation: loaded (should use cached config from Test 1)
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Model-ID: gpt-4.1-mini
+POST {{apimEndpoint}}/openai/deployments/{{deploymentName}}/chat/completions?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+UAIG-Config-Cache-Bypass: false
+Content-Type: application/json
+
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "Say 'No Skip' please"
+        }
+    ],
+    "max_tokens": 10
+}
+

@@ -1,0 +1,152 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+###############################################################################
+### LLM Token Limiting Tests
+###############################################################################
+
+### Overview:
+### Validates Azure API Management (APIM) Unified AI Gateway token-based rate limiting functionality
+### using the llm-token-limit policy.
+### 
+### Token Limits by Tier:
+### - Standard tier: 1,000 tokens/minute, 5,000 tokens/hour quota
+### - Premium tier: 2,000 tokens/minute, 10,000 tokens/hour quota
+### 
+### To change token limits: Edit Infra/Resources/Fragments/Token-Limiter.xml
+### (update tokens-per-minute, token-quota, token-quota-period values) and run `azd up` to redeploy.
+### 
+### These two tests (API Key vs JWT) use DIFFERENT token limit keys, which means:
+### 
+### 1. SEPARATE TOKEN LIMITS: Each identity has its own token allocation
+###    - API Key test uses key: "uaig-sub-{subscription-id}-{tier}"
+###    - JWT test uses key: "uaig-jwt-{user-id}-{tier}"
+### 
+### 2. TEST STRATEGY:
+###    - Send requests with large prompts to consume tokens faster
+###    - Monitor UAIG-Remaining-Tokens header to see token consumption
+###    - When tokens are exhausted: 429 from APIM (rate limit) or 403 (quota exceeded)
+### 
+### Prerequisites:
+### 1. Run `azd up` to provision the infrastructure and create the VS Code settings file with all required variables
+### 2. Ensure your APIM instance and backends are successfully deployed
+###
+### Expected Headers:
+### - UAIG-Token-Limit-Key: Token limiting key (shows API Key vs JWT identity)
+### - UAIG-Model-Tier: Model tier (standard or premium) - determines token limits
+### - UAIG-Remaining-Tokens: Remaining tokens in current minute window
+### - UAIG-Remaining-Quota-Tokens: Remaining tokens in daily quota
+### - UAIG-Tokens-Consumed: Tokens consumed by the request (set after response)
+### - UAIG-Model-Tier: Model tier (standard or premium)
+### - UAIG-Retry-After: Retry delay when token rate limit hit (APIM 429)
+###
+### Usage:
+### - Click "Send Request" above each request in VS Code with REST Client extension
+### - For tests that require JWT bearer token authentication, run Authentication Setup to generate the JWT token first
+### - JWT tokens expire; if you get 401 errors, re-run request to refresh the token 
+### - Monitor token consumption via UAIG-Tokens-Consumed header
+### - Expected 429 responses when per-minute limit exceeded, 403 when daily quota exceeded
+
+###
+### NOTE: Circuit Breaker Isolation for Pure Rate Limiting Testing
+### - Backend Configuration: Uses standard-responses-backend
+###
+
+# Variables from VS Code REST Client settings
+@apimEndpoint = {{apim_gateway_url}}/unified-ai
+@apiVersion = 2025-01-01-preview
+
+# APIM subscription key from VS Code settings
+@apimSubKey = {{apim_subscription_key}}
+
+# Use dynamic token from the authentication request below:
+@jwtToken = {{getJwtToken.response.body.access_token}}
+
+###############################################################################
+### Authentication Setup - JWT Bearer Token Generation
+###############################################################################
+
+### Get Bearer Token for JWT Authentication
+# @name getJwtToken
+# Uses actual values from VS Code settings - no manual configuration needed!
+POST https://login.microsoftonline.com/{{tenant_id}}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id={{entra_app_id}}
+&client_secret={{entra_app_client_secret}}
+&scope={{entra_app_identifier_uri}}/.default
+
+### The access_token is automatically assigned to @jwtToken variable above
+### Make sure to run the "Get Bearer Token" request first before running JWT tests
+### Note: JWT tokens expire and will need to be refreshed periodically by re-running this request
+
+###############################################################################
+### API Key Token Limiting Test
+###############################################################################
+
+### Test: API Key Token Limiting with Standard Tier (gpt-4.1-mini)
+### Token limit: 1,000 tokens/minute, 5,000 tokens/hour quota
+### Backend: standard-responses-backend
+### Run this request 2-3 times rapidly to trigger the 429 token limit response
+# Expected Debug Headers:
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/responses
+# UAIG-Token-Limit-Key: uaig-sub-{subscription-id}-standard
+# UAIG-Model-Tier: standard (1000 TPM / 5000 hourly quota)
+# UAIG-Remaining-Tokens: {remaining} (per-minute limit, resets every minute)
+# UAIG-Remaining-Quota-Tokens: {remaining} (hourly quota, resets every hour)
+# UAIG-Tokens-Consumed: {consumed} (actual tokens used by this request)
+# UAIG-Retry-After: {seconds} (appears only on 429 responses when rate limit exceeded)
+### NOTE: 
+### Token-based limiting tracks actual consumption, not request counts
+### After waiting the specified time in retry-after header, per-minute limit resets
+### Hourly quota resets at the top of each hour
+POST {{apimEndpoint}}/openai/responses
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4.1-mini",
+  "input": "Write a detailed explanation of how neural networks work, including the concepts of layers, weights, biases, activation functions, backpropagation, gradient descent, and how they learn from training data. Include examples of common architectures like CNNs and RNNs.",
+  "temperature": 0.5
+}
+
+###############################################################################
+### JWT Bearer Token Limiting Test
+###############################################################################
+
+### Test: JWT Token Limiting with Standard Tier (gpt-4.1-mini)
+### Token limit: 1,000 tokens/minute, 5,000 tokens/hour quota
+### Backend: standard-responses-backend
+### Run this request 2-3 times rapidly to trigger the 429 token limit response
+### Important: If you get 401 Unauthorized, re-run the "Get Bearer Token" request above (tokens expire)
+# Expected Debug Headers:
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/responses
+# UAIG-Token-Limit-Key: uaig-jwt-{user-id}-standard
+# UAIG-Model-Tier: standard (1000 TPM / 5000 hourly quota)
+# UAIG-Remaining-Tokens: {remaining} (per-minute limit, resets every minute)
+# UAIG-Remaining-Quota-Tokens: {remaining} (hourly quota, resets every hour)
+# UAIG-Tokens-Consumed: {consumed} (actual tokens used by this request)
+# UAIG-Retry-After: {seconds} (appears only on 429 responses when rate limit exceeded)
+### Note: 
+### Token-based limiting tracks actual consumption, not request counts
+### JWT token limiting uses user-based keys for per-user token allocation
+POST {{apimEndpoint}}/openai/responses
+Authorization: Bearer {{jwtToken}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4.1-mini",
+  "input": "Explain the complete history of artificial intelligence from its origins in the 1950s to modern large language models. Cover key milestones like the Dartmouth Conference, expert systems, the AI winters, machine learning breakthroughs, deep learning revolution, and the emergence of transformer architectures.",
+  "temperature": 0.5
+}
+
+###

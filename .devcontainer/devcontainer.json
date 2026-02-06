@@ -1,0 +1,42 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+{
+    "name": "Azure Developer CLI",
+    "image": "mcr.microsoft.com/devcontainers/base:bullseye",
+    "features": {
+        "ghcr.io/devcontainers/features/azure-cli:1": {
+        },
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {
+        },
+        "ghcr.io/devcontainers/features/terraform:1": {
+            "version": "latest"
+        },
+        "ghcr.io/azure/azure-dev/azd:latest": {},
+        "ghcr.io/devcontainers/features/powershell:1": {
+            "version": "latest"
+        },
+        "ghcr.io/devcontainers/features/git:1": {
+            "version": "latest"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "hashicorp.terraform",
+                "ms-azuretools.azure-dev",
+                "ms-azuretools.vscode-docker",
+                "humao.rest-client"
+            ]
+        }
+    },
+    "forwardPorts": [
+        // Forward ports if needed for local development
+    ],
+    "postCreateCommand": "pwsh -Command 'Install-Module -Name Az -Force -AllowClobber -Scope CurrentUser' && terraform --version && az --version && azd version",
+    "remoteUser": "vscode",
+    "shutdownAction": "none",
+    "hostRequirements": {
+        "memory": "8gb"
+    }
+}

@@ -1,0 +1,209 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+====================================================================================================
+Central Cache Manager Fragment
+====================================================================================================
+
+SUMMARY:
+	Provides cross-request configuration caching using APIM cache to eliminate redundant JSON loading 
+	operations. Loads metadata-config once and reuses loaded objects across multiple requests.
+	Supports configurable cache duration and version-based invalidation.
+	
+CACHING BEHAVIOR:
+
+	1. APIM BUILT-IN CACHING (Default):
+	   - Uses APIM's cache (<cache-lookup-value>/<cache-store-value>)
+	   - Cache is shared across ALL requests from ALL clients
+	   - Configurable duration via cache-settings.ttl-seconds (default: 300 seconds)
+	   - Version-based cache key: "metadata-config-v{version}" for automatic invalidation
+	   - First request: Loads config and stores in APIM cache
+	   - Subsequent requests: Retrieves from APIM cache without loading
+	   
+	2. VERSION-BASED INVALIDATION:
+	   - Cache key includes config-version from cache-settings section
+	   - Changing config-version automatically invalidates old cache entries
+	   - To refresh cache: increment config-version and redeploy
+	   
+	3. CACHE BYPASS:
+	   - Triggered by HTTP header: UAIG-Config-Cache-Bypass: true
+	   - Loads metadata-config fresh for this request
+	   - Does NOT read from or write to APIM cache
+	   - All configuration variables are still set normally
+
+INPUT VARIABLES:
+	- metadata-config: Raw JSON string variable that must be set by a prior fragment (e.g., Metadata-Config)
+	- UAIG-Config-Cache-Bypass header: Boolean to bypass cache entirely
+
+OUTPUT VARIABLES:
+	- cache-key: Generated cache key (version-based) for APIM cache operations
+	- cache-operation: String indicating cache operation:
+	    - "bypass": Cache was skipped entirely, config loaded fresh (no cache read/write)
+	    - "loaded": Config retrieved from existing APIM cache entry
+	    - "store": Config loaded fresh and stored in APIM cache (cache miss or refresh)
+	- cache-config-version: Configuration version string from cache-settings
+	- cache-ttl-seconds: Cache TTL in seconds from cache-settings
+	- cache-settings: Full cache-settings section as JObject
+	- config-api-types: API types section extracted as JObject
+	- config-models: Models section extracted as JObject
+	- config-timeout-settings: Timeout settings section extracted as JObject
+	
+DOWNSTREAM CONSUMERS:
+	- backend-selector fragment: Uses config-models, config-api-types
+	- token-limiter fragment: Uses config-models for tier lookup
+	- path-builder fragment: Uses config-api-types for base path building
+	- diagnostic-headers fragment: Uses config sections for debug headers
+
+UPSTREAM DEPENDENCIES:
+	- metadata-config fragment: Provides the raw JSON configuration string
+====================================================================================================
+-->
+<fragment fragment-id="central-cache-manager">
+	<!-- Extract cache settings from metadata-config first -->
+	<set-variable name="cache-settings" value="@{
+		try {
+			var configStr = context.Variables.GetValueOrDefault<string>("metadata-config", "{}");
+			var config = JObject.Parse(configStr);
+			var settings = config["cache-settings"] as JObject;
+			if (settings != null) {
+				return settings;
+			}
+			// Default cache settings
+			return JObject.Parse(@"{'config-version':'1.0.0','ttl-seconds':300}");
+		} catch {
+			return JObject.Parse(@"{'config-version':'1.0.0','ttl-seconds':300}");
+		}
+	}" />
+	<!-- Extract cache configuration values -->
+	<set-variable name="cache-config-version" value="@{
+		var settings = context.Variables.GetValueOrDefault<JObject>("cache-settings");
+		return settings?["config-version"]?.ToString() ?? "1.0.0";
+	}" />
+	<set-variable name="cache-ttl-seconds" value="@{
+		var settings = context.Variables.GetValueOrDefault<JObject>("cache-settings");
+		return settings?["ttl-seconds"]?.Value<int>() ?? 300;
+	}" />
+	<!-- Check if cache bypass is requested via header -->
+	<set-variable name="cache-bypass-requested" value="@{
+		var headerValue = context.Request.Headers.GetValueOrDefault("UAIG-Config-Cache-Bypass", String.Empty);
+		return bool.TryParse(headerValue, out var result) && result;
+	}" />
+	<!-- Version-based cache key for invalidation -->
+	<set-variable name="cache-key" value="@{
+		var version = context.Variables.GetValueOrDefault<string>("cache-config-version", "1.0.0");
+		return "metadata-config-v" + version;
+	}" />
+	<choose>
+		<!-- Load fresh, bypass built-in APIM cache entirely -->
+		<when condition="@(context.Variables.GetValueOrDefault<bool>("cache-bypass-requested", false))">
+			<!-- Load configuration fresh -->
+			<set-variable name="config-loaded" value="@{
+				try {
+					var configStr = context.Variables.GetValueOrDefault<string>("metadata-config", "{}");
+					return JObject.Parse(configStr);
+				} catch {
+					return new JObject();
+				}
+			}" />
+			<!-- Load all configuration sections -->
+			<set-variable name="config-models" value="@{
+				var config = context.Variables.GetValueOrDefault<JObject>("config-loaded");
+				return config["models"] as JObject ?? new JObject();
+			}" />
+			<set-variable name="config-api-types" value="@{
+				var config = context.Variables.GetValueOrDefault<JObject>("config-loaded");
+				return config["api-types"] as JObject ?? new JObject();
+			}" />
+			<set-variable name="config-timeout-settings" value="@{
+				var config = context.Variables.GetValueOrDefault<JObject>("config-loaded");
+				return config["timeout-settings"] as JObject ?? JObject.Parse(@"{'streaming-multiplier':3}");
+			}" />
+			<!-- Trace when cache bypass is requested -->
+			<trace source="Central-Cache-Manager-Bypass" severity="information">
+				<message>@($"UAIG - Cache bypass requested for {context.Request.Url.Path}")</message>
+			</trace>
+			<set-variable name="cache-operation" value="bypass" />
+		</when>
+		<!-- Use APIM built-in cache -->
+		<otherwise>
+			<!-- Try to get from built-in APIM cache -->
+			<!-- Reference: https://learn.microsoft.com/azure/api-management/cache-lookup-value-policy -->
+			<cache-lookup-value key="@(context.Variables.GetValueOrDefault<string>("cache-key"))" variable-name="cached-config-metadata" />
+			<choose>
+				<!-- Key found in cache -->
+				<when condition="@(context.Variables.ContainsKey("cached-config-metadata"))">
+					<!-- Load metadata from cache -->
+					<set-variable name="cached-metadata" value="@{
+						try {
+							return JObject.Parse(context.Variables.GetValueOrDefault<string>("cached-config-metadata"));
+						} catch {
+							return new JObject();
+						}
+					}" />
+					<!-- Trace when configuration is loaded from cache -->
+					<trace source="Central-Cache-Manager-Loaded" severity="information">
+						<message>@($"UAIG - Configuration loaded from cache for {context.Request.Url.Path}")</message>
+					</trace>
+					<set-variable name="cache-operation" value="loaded" />
+					<!-- Load all cached variables -->
+					<set-variable name="config-models" value="@{
+						var cached = context.Variables.GetValueOrDefault<JObject>("cached-metadata");
+						return cached["models"] as JObject ?? new JObject();
+					}" />
+					<set-variable name="config-api-types" value="@{
+						var cached = context.Variables.GetValueOrDefault<JObject>("cached-metadata");
+						return cached["api-types"] as JObject ?? new JObject();
+					}" />
+					<set-variable name="config-timeout-settings" value="@{
+						var cached = context.Variables.GetValueOrDefault<JObject>("cached-metadata");
+						return cached["timeout-settings"] as JObject ?? JObject.Parse(@"{'streaming-multiplier':3}");
+					}" />
+				</when>
+				<!-- Key not found in cache -->
+				<otherwise>
+					<!-- Load configuration -->
+					<set-variable name="config-loaded" value="@{
+						try {
+							var configStr = context.Variables.GetValueOrDefault<string>("metadata-config", "{}");
+							return JObject.Parse(configStr);
+						} catch {
+							return new JObject();
+						}
+					}" />
+					<!-- Load all configuration sections -->
+					<set-variable name="config-models" value="@{
+						var config = context.Variables.GetValueOrDefault<JObject>("config-loaded");
+						return config["models"] as JObject ?? new JObject();
+					}" />
+					<set-variable name="config-api-types" value="@{
+						var config = context.Variables.GetValueOrDefault<JObject>("config-loaded");
+						return config["api-types"] as JObject ?? new JObject();
+					}" />
+					<set-variable name="config-timeout-settings" value="@{
+						var config = context.Variables.GetValueOrDefault<JObject>("config-loaded");
+						return config["timeout-settings"] as JObject ?? JObject.Parse(@"{'streaming-multiplier':3}");
+					}" />
+					<!-- Build cache metadata -->
+					<set-variable name="cache-metadata" value="@{
+						var metadata = new JObject();
+						metadata["models"] = context.Variables.GetValueOrDefault<JObject>("config-models");
+						metadata["api-types"] = context.Variables.GetValueOrDefault<JObject>("config-api-types");
+						metadata["timeout-settings"] = context.Variables.GetValueOrDefault<JObject>("config-timeout-settings");
+						return metadata.ToString(Newtonsoft.Json.Formatting.None);
+					}" />
+					<!-- Store in built-in APIM cache with configurable TTL -->
+					<!-- Reference: https://learn.microsoft.com/azure/api-management/cache-store-value-policy -->
+					<cache-store-value 
+						key="@(context.Variables.GetValueOrDefault<string>("cache-key"))" 
+						value="@(context.Variables.GetValueOrDefault<string>("cache-metadata"))" 
+						duration="@(context.Variables.GetValueOrDefault<int>("cache-ttl-seconds", 300))" />
+					<!-- Trace when configuration is stored in cache -->
+					<trace source="Central-Cache-Manager-Store" severity="information">
+						<message>@($"UAIG - Configuration stored in cache for {context.Request.Url.Path}")</message>
+					</trace>
+					<set-variable name="cache-operation" value="store" />
+				</otherwise>
+			</choose>
+		</otherwise>
+	</choose>
+</fragment>

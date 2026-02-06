@@ -1,0 +1,80 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+	====================================================================================================
+	Backend Selector Fragment
+	====================================================================================================
+
+	SUMMARY:
+		Selects appropriate backend based on model and API type, configures backend service,
+		and applies backend-specific authentication (e.g., Gemini API key override).
+		
+	INPUT VARIABLES:
+		- api-type: API type for backend selection and authentication logic (openai|inference|responses|geminiopenai|etc.)
+		- model-id: Extracted model identifier from request-processor
+		- config-models: Pre-extracted models configuration from central-cache-manager
+		- config-api-types: Pre-extracted API types configuration from central-cache-manager
+
+	OUTPUT VARIABLES:
+		- selected-backend: Selected backend name
+		
+	DOWNSTREAM CONSUMERS:
+		- unifiedaigateway-wildcard-api.xml: Uses selected-backend for backend attribution in set-backend-service
+		- token-tracking fragment: Uses selected-backend for usage attribution
+		- diagnostic-headers fragment: Uses selected-backend for debug headers
+		
+	UPSTREAM DEPENDENCIES:
+		- request-processor fragment: Provides api-type, model-id
+		- central-cache-manager fragment: Provides config-models, config-api-types for backend lookup
+	====================================================================================================
+	-->
+<fragment fragment-id="backend-selector">
+	<!-- Backend selection: if api-type defines a backend, use it; otherwise use model's backend -->
+	<set-variable name="selected-backend" value="@{
+		var apiType = context.Variables.GetValueOrDefault<string>("api-type", "openai");
+		var modelId = context.Variables.GetValueOrDefault<string>("model-id", "unknown");
+		var models = context.Variables.GetValueOrDefault<JObject>("config-models");
+		var apiTypes = context.Variables.GetValueOrDefault<JObject>("config-api-types");
+		
+		var apiTypeBackend = apiTypes?[apiType]?["backend"]?.ToString();
+		if (!string.IsNullOrEmpty(apiTypeBackend)) {
+			return apiTypeBackend;
+		}
+		
+		var modelBackend = models?[modelId]?["backend"]?.ToString();
+		if (!string.IsNullOrEmpty(modelBackend)) {
+			return modelBackend;
+		}
+		
+		return string.Empty;
+	}" />
+	<!-- Backend configuration error -->
+	<choose>
+		<when condition="@(string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("selected-backend")))">
+			<trace source="Backend-Selector-Error" severity="error">
+				<message>@($"UAIG - Backend not configured for model {context.Variables.GetValueOrDefault<string>("model-id", "not-set")} with API type {context.Variables.GetValueOrDefault<string>("api-type", "not-set")}")</message>
+			</trace>
+			<return-response>
+				<set-status code="500" reason="Internal Server Error" />
+				<set-header name="Content-Type" exists-action="override">
+					<value>application/json</value>
+				</set-header>
+				<set-body>Backend not configured for the requested model or API type.</set-body>
+			</return-response>
+		</when>
+	</choose>
+	<!-- Set backend service using APIM built-in policy -->
+	<!-- Reference: https://learn.microsoft.com/azure/api-management/set-backend-service-policy -->
+	<set-backend-service backend-id="@(context.Variables.GetValueOrDefault<string>("selected-backend"))" />
+	<!-- Backend-specific authentication -->
+	<choose>
+		<when condition="@(context.Variables.GetValueOrDefault<string>("api-type", string.Empty).Equals("geminiopenai", StringComparison.OrdinalIgnoreCase))">
+			<set-header name="Authorization" exists-action="override">
+				<value>@("Bearer " + "{{Gemini-ApiKey}}")</value>
+			</set-header>
+		</when>
+	</choose>
+	<trace source="Backend-Selector-Complete" severity="information">
+		<message>@($"UAIG - Backend {context.Variables.GetValueOrDefault<string>("selected-backend", "not-set")} selected for model {context.Variables.GetValueOrDefault<string>("model-id", "not-set")} with API type {context.Variables.GetValueOrDefault<string>("api-type", "not-set")}")</message>
+	</trace>
+</fragment>

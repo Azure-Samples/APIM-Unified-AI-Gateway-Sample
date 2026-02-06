@@ -1,0 +1,141 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+// ============================================
+// TOKEN CONSUMPTION ANALYTICS
+// Unified AI Gateway Sample Analytics
+// ============================================
+// Token analytics using Azure APIM llm-emit-token-metric policy.
+// Metrics are emitted to Application Insights customMetrics table with:
+// - Dimensions: UAIG Model ID, UAIG API Type, User ID, Subscription ID, Backend ID, Original Path, Final Path
+// - Metrics: Prompt Tokens, Completion Tokens, Total Tokens
+//
+// Reference: https://learn.microsoft.com/en-us/azure/api-management/llm-emit-token-metric-policy
+
+// ============================================
+// Token Consumption by Model
+// Purpose: Analyzes token consumption patterns across different models.
+// Expected Results: Token consumption breakdown by model with prompt/completion metrics.
+// Usage: Use to understand model consumption patterns and identify optimization opportunities.
+// ============================================
+customMetrics
+| where name in ("Prompt Tokens", "Completion Tokens", "Total Tokens")
+| extend 
+    modelId = tostring(customDimensions.["UAIG Model ID"])
+| where isnotempty(modelId)
+| summarize 
+    TotalRequests = countif(name == "Total Tokens"),
+    TotalTokens = sumif(value, name == "Total Tokens"),
+    PromptTokens = sumif(value, name == "Prompt Tokens"),
+    CompletionTokens = sumif(value, name == "Completion Tokens"),
+    AvgTokensPerRequest = round(avgif(value, name == "Total Tokens"), 1)
+    by modelId
+| extend 
+    PromptToCompletionRatio = round(PromptTokens * 1.0 / CompletionTokens, 2)
+| project 
+    modelId,
+    TotalRequests,
+    TotalTokens,
+    PromptTokens,
+    CompletionTokens,
+    AvgTokensPerRequest,
+    PromptToCompletionRatio
+| order by TotalTokens desc
+
+// ============================================
+// Token Consumption by API Type
+// Purpose: Analyzes token consumption by API type for resource planning.
+// Expected Results: Token consumption breakdown by API type with request metrics.
+// Usage: Use to understand API type consumption patterns and backend allocation.
+// ============================================
+customMetrics
+| where name in ("Prompt Tokens", "Completion Tokens", "Total Tokens")
+| extend 
+    apiType = tostring(customDimensions.["UAIG API Type"])
+| where isnotempty(apiType)
+| summarize 
+    TotalRequests = countif(name == "Total Tokens"),
+    TotalTokens = sumif(value, name == "Total Tokens"),
+    PromptTokens = sumif(value, name == "Prompt Tokens"),
+    CompletionTokens = sumif(value, name == "Completion Tokens"),
+    AvgTokensPerRequest = round(avgif(value, name == "Total Tokens"), 1)
+    by apiType
+| extend 
+    PromptToCompletionRatio = round(PromptTokens * 1.0 / CompletionTokens, 2)
+| project 
+    apiType,
+    TotalRequests,
+    TotalTokens,
+    PromptTokens,
+    CompletionTokens,
+    AvgTokensPerRequest,
+    PromptToCompletionRatio
+| order by TotalTokens desc
+
+// ============================================
+// Token Consumption by User ID / Subscription
+// Purpose: Analyzes token consumption by user (JWT) or subscription (API key) for quota management.
+// Expected Results: Token consumption breakdown by identity with consumption metrics.
+// Usage: Use to identify heavy users, monitor quotas, and track activity.
+// Note: JWT auth provides User ID; API key auth provides Subscription ID only.
+// ============================================
+customMetrics
+| where name in ("Prompt Tokens", "Completion Tokens", "Total Tokens")
+| extend 
+    userId = tostring(customDimensions.["User ID"]),
+    subscriptionId = tostring(customDimensions.["Subscription ID"])
+| extend 
+    identity = iff(isnotempty(userId) and userId != "N/A", strcat("User: ", userId), strcat("Subscription: ", subscriptionId))
+| where isnotempty(identity)
+| summarize 
+    TotalRequests = countif(name == "Total Tokens"),
+    TotalTokens = sumif(value, name == "Total Tokens"),
+    PromptTokens = sumif(value, name == "Prompt Tokens"),
+    CompletionTokens = sumif(value, name == "Completion Tokens"),
+    AvgTokensPerRequest = round(avgif(value, name == "Total Tokens"), 1)
+    by identity
+| extend 
+    PromptToCompletionRatio = round(PromptTokens * 1.0 / CompletionTokens, 2)
+| project 
+    identity,
+    TotalRequests,
+    TotalTokens,
+    PromptTokens,
+    CompletionTokens,
+    AvgTokensPerRequest,
+    PromptToCompletionRatio
+| order by TotalTokens desc
+
+// ----------------------------------------
+// Token Consumption by Tier
+// Shows token consumption distribution across model tiers
+// ----------------------------------------
+traces
+| where message startswith "UAIG - Token limits applied"
+| parse message with "UAIG - Token limits applied for " tier:string " tier model " model:string
+| where isnotempty(tier)
+| summarize Requests = count() by tier, model
+| render barchart with (title = "Token Limit Requests by Tier", ytitle = "Requests")
+
+// ----------------------------------------
+// Token Rate Limit Violations (429)
+// Tracks when per-minute token limits are exceeded
+// ----------------------------------------
+requests
+| where resultCode == "429"
+| summarize ViolationCount = count() by bin(timestamp, 5m)
+| render timechart with (title = "Token Rate Limit Violations (429)", ytitle = "Violations")
+
+// ----------------------------------------
+// Path Routing Summary
+// Shows how client paths are transformed to backend paths
+// ----------------------------------------
+customMetrics
+| where name == "Total Tokens"
+| extend 
+    originalPath = tostring(customDimensions.["Original Path"]),
+    finalPath = tostring(customDimensions.["Final Path"]),
+    backendId = tostring(customDimensions.["Backend ID"])
+| where isnotempty(originalPath) and originalPath != "N/A"
+| summarize RequestCount = count() by originalPath, finalPath, backendId
+| order by RequestCount desc

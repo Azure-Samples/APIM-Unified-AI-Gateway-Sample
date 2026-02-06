@@ -1,0 +1,51 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+// ANALYTICS - Unified AI Gateway Sample
+// Authentication and backend usage analytics from APIM trace data
+
+// ----------------------------------------
+// JWT vs API Key Usage Over Time
+// Shows authentication method trends in hourly buckets
+// ----------------------------------------
+let authData = traces
+| where message startswith "UAIG -"
+| where message has_any ("API-Key authenticated", "JWT authenticated")
+| extend method = iff(message has "API-Key", "API-Key", "JWT");
+authData
+| make-series RequestCount = count() default = 0 on timestamp step 1h by method
+| render timechart with (title = "Authentication Method Usage Over Time", ytitle = "Requests", xtitle = "Time")
+
+// ----------------------------------------
+// Success vs Failure Authentication
+// Compares successful and failed auth attempts
+// ----------------------------------------
+traces
+| where message startswith "UAIG -"
+| where message has_any ("API-Key authenticated", "JWT authenticated", "Unauthenticated request")
+| extend outcome = iff(message has "Unauthenticated", "Failure", "Success")
+| summarize count() by outcome
+| render piechart with (title = "Authentication Outcomes")
+
+// ----------------------------------------
+// Backend Endpoint Usage
+// Shows request distribution across backend endpoints
+// ----------------------------------------
+traces
+| where message startswith "UAIG - Backend"
+| parse message with "UAIG - Backend " backend:string " selected for model " model:string " with API type " apiType:string
+| where isnotempty(backend)
+| summarize Requests = count() by backend, model
+| order by Requests desc
+| render barchart with (title = "Backend Usage by Model", ytitle = "Requests")
+
+// ----------------------------------------
+// Blocked Path Requests
+// Tracks requests rejected by path validation (403 Forbidden)
+// ----------------------------------------
+traces
+| where message startswith "UAIG - Blocked request"
+| parse message with "UAIG - Blocked request to " method:string " " path:string " from " clientIp:string
+| where isnotempty(path)
+| summarize BlockedCount = count() by path, method, clientIp
+| order by BlockedCount desc

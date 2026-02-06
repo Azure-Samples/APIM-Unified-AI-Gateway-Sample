@@ -1,0 +1,136 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+====================================================================================================
+Path Builder Fragment
+====================================================================================================
+
+SUMMARY:
+	Reconstructs backend URI paths from known components to ensure all requests route to valid
+	endpoints only. Simplifies client requests by auto-injecting api-version and model fields.
+
+PATH CONSTRUCTION BY API TYPE:
+	- Gemini/OpenAI-v1: {api-base-path}/chat/completions
+	- Responses API:    {api-base-path} or {api-base-path}/{response-id}
+	- Inference API:    {api-base-path}/chat/completions  
+	- Default OpenAI:   {api-base-path}/deployments/{model-id}/chat/completions
+
+ADDITIONAL TRANSFORMATIONS:
+	- Injects api-version query parameter for non-v1 API types
+	- Injects model field into request body when missing (OpenAI)
+
+INPUT VARIABLES (from request-processor):
+	- api-type: Detected API type (openai|inference|responses|responses-v1|openai-v1|geminiopenai)
+	- api-base-path: Base path for the API type (e.g., /openai, /openai/responses)
+	- model-id: Extracted model identifier (lowercase)
+	- response-id: Response ID for GET/DELETE operations on responses API
+	- selected-api-version: API version for backend requests
+
+OUTPUT VARIABLES:
+	- finalPath: Reconstructed path for backend routing
+
+UPSTREAM DEPENDENCIES:
+	- request-processor fragment: Provides all input variables
+====================================================================================================
+-->
+<fragment fragment-id="path-builder">
+	<!-- Reconstructs all request paths to ensure routing to valid endpoints only -->
+	<choose>
+		<!-- Gemini OpenAI API and OpenAI v1 -->
+		<when condition="@{
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type");
+			return apiType.Equals("geminiopenai", StringComparison.OrdinalIgnoreCase) || apiType.Equals("openai-v1", StringComparison.OrdinalIgnoreCase);
+		}">
+			<set-variable name="finalPath" value="@{
+				var basePath = context.Variables.GetValueOrDefault<string>("api-base-path", String.Empty);
+				return !String.IsNullOrEmpty(basePath) ? $"{basePath}/chat/completions" : String.Empty;
+			}" />
+			<set-body>@(context.Request.Body.As<string>())</set-body>
+		</when>
+		<!-- Responses and Inference -->
+		<when condition="@{
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type", String.Empty);
+			return apiType.StartsWith("responses", StringComparison.OrdinalIgnoreCase) || apiType.Equals("inference", StringComparison.OrdinalIgnoreCase);
+		}">
+			<set-variable name="finalPath" value="@{
+				var apiType = context.Variables.GetValueOrDefault<string>("api-type", String.Empty);
+				var basePath = context.Variables.GetValueOrDefault<string>("api-base-path", String.Empty);
+				var responseId = context.Variables.GetValueOrDefault<string>("response-id", String.Empty);
+
+				if (String.IsNullOrEmpty(basePath)) {
+					return String.Empty;
+				}	
+				
+				// Responses API
+				if (apiType.StartsWith("responses", StringComparison.OrdinalIgnoreCase)) {
+					var includeResponseId = !String.IsNullOrEmpty(responseId) && (context.Request.Method == "GET" || context.Request.Method == "DELETE");
+					return includeResponseId ? $"{basePath}/{responseId}" : basePath;
+				}
+				
+				// Inference API
+				return $"{basePath}/chat/completions";
+			}" />
+			<choose>
+				<!-- Override api-version for responses and inference (v1 infers version from path) -->
+				<when condition="@{
+					var apiType = context.Variables.GetValueOrDefault<string>("api-type", String.Empty);
+					return apiType == "responses" || apiType == "inference";
+				}">
+					<set-query-parameter name="api-version" exists-action="override">
+						<value>@(context.Variables.GetValueOrDefault<string>("selected-api-version"))</value>
+					</set-query-parameter>
+				</when>
+			</choose>
+		</when>
+		<!-- Default OpenAI -->
+		<otherwise>
+			<set-variable name="finalPath" value="@{
+				var basePath = context.Variables.GetValueOrDefault<string>("api-base-path", String.Empty);
+				var modelId = context.Variables.GetValueOrDefault<string>("model-id", String.Empty);
+				
+				return !String.IsNullOrEmpty(basePath) && !String.IsNullOrEmpty(modelId)
+					? $"{basePath}/deployments/{modelId}/chat/completions"
+					: String.Empty;
+			}" />
+			<!-- Automatically add model field into request body if it isn't included in the request -->
+			<set-body>@{
+				var body = context.Request.Body.As<string>();
+				if (!String.IsNullOrEmpty(body)) {
+					try {
+						var parsedBody = JObject.Parse(body);
+						var modelId = context.Variables.GetValueOrDefault<string>("model-id", String.Empty);
+						if (parsedBody["model"] == null || String.IsNullOrEmpty(parsedBody["model"].ToString())) {
+							parsedBody["model"] = modelId;
+						}
+						return parsedBody.ToString();
+					} catch {
+						return body;
+					}
+				}
+				return body;
+			}</set-body>
+			<set-query-parameter name="api-version" exists-action="override">
+				<value>@(context.Variables.GetValueOrDefault<string>("selected-api-version"))</value>
+			</set-query-parameter>
+		</otherwise>
+	</choose>
+	<!-- Handle path configuration errors -->
+	<choose>
+		<when condition="@(String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("finalPath", String.Empty)))">
+			<trace source="Path-Builder-Error" severity="error">
+				<message>@($"UAIG - Path builder error for API type: {context.Variables.GetValueOrDefault<string>("api-type")}")</message>
+			</trace>
+			<return-response>
+				<set-status code="500" reason="Internal Server Error" />
+				<set-header name="Content-Type" exists-action="override">
+					<value>application/json</value>
+				</set-header>
+				<set-body>@{return "{\"error\":{" + "\"code\":\"500\"," + "\"message\":\"No path determined for API type: " + context.Variables.GetValueOrDefault<string>("api-type") + "\"," + "\"requestId\":\"" + context.Variables.GetValueOrDefault<string>("request-id", context.RequestId.ToString()) + "\"" + "}}";
+				}</set-body>
+			</return-response>
+		</when>
+	</choose>
+	<!-- Rewrite URI with validated path using APIM built-in policy -->
+	<!-- Reference: https://learn.microsoft.com/azure/api-management/rewrite-uri-policy -->
+	<rewrite-uri template="@(context.Variables.GetValueOrDefault<string>("finalPath"))" copy-unmatched-params="true" />
+</fragment>

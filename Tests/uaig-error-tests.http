@@ -1,0 +1,124 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+### Unified AI Gateway - Error Handling and Validation Tests
+### 
+### This test collection validates error handling and validation behavior in the Azure API Management (APIM) 
+### 
+### Prerequisites (see ReadMe for details):
+### 1. Run `azd up` to provision the infrastructure and create the VS Code settings file with all required variables
+### 2. Ensure your APIM instance and phi-4 Foundry backends are successfully deployed
+###
+### Test Coverage:
+### - Missing JWT bearer token
+### - Invalid API key
+### - Server side errors (invalid model configuration, non-existent response ID)
+### - Unrecognized path (path validation - 403 Forbidden)
+###
+### Usage:
+### - Click "Send Request" above each request in VS Code with REST Client extension
+### - Validate negative scenarios and expected error responses
+###
+# Variables from VS Code REST Client settings
+@apimEndpoint = {{apim_gateway_url}}/unified-ai
+@apiVersion = 2025-01-01-preview
+
+# Authentication values from VS Code settings
+@apimSubKey = {{apim_subscription_key}}
+
+# Non-existent response ID for error testing
+@stdResponseId = resp_07c875e068aee6e600692de1de1828819598cd95d9314b6ad5
+
+###############################################################################
+### Error Handling Tests
+###############################################################################
+
+### Test: Missing JWT bearer token and API key
+### Tests gateway behavior when no authentication is provided (no API key or JWT token)
+### Expected Response: 401 Unauthorized with message about providing API key or JWT token
+POST {{apimEndpoint}}/openai/deployments/gpt-4.1/chat/completions?api-version={{apiVersion}}
+Content-Type: application/json
+
+{
+  "model": "gpt-4.1",
+  "messages": [
+    {
+      "role": "user",
+      "content": "This should fail without authentication."
+    }
+  ],
+  "max_tokens": 50
+}
+
+### Test: Invalid API Key
+### Tests gateway behavior when an invalid/malformed API key is provided
+### Expected Response: 401 Unauthorized with missing key message
+POST {{apimEndpoint}}/openai/chat/completions
+api-key: invalid_api_key
+
+{
+    "model": "gpt-4.1",
+    "messages": [
+        {
+            "role": "user",
+            "content": "This should use OpenAI routing, not Gemini"
+        }
+    ],
+    "max_tokens": 30
+}
+
+### Test: Invalid JWT Bearer Token
+### Tests gateway behavior when an invalid/malformed JWT bearer token is provided
+### Expected Response: 401 Unauthorized with invalid/expired token message
+POST {{apimEndpoint}}/openai/chat/completions
+Authorization: Bearer invalid_jwt_token
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1",
+    "messages": [
+        {
+            "role": "user",
+            "content": "This should fail with invalid JWT"
+        }
+    ],
+    "max_tokens": 30
+}
+
+### Test: Invalid Response ID
+### Tests gateway behavior when requesting a response with an invalid or non-existent response ID
+### Expected Response: 404 Not Found or 400 Bad Request
+GET {{apimEndpoint}}/openai/responses/{{stdResponseId}}?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+### Test: Invalid Model Configuration (Gemini)
+# Tests error handling when requesting an invalid/non-existent Gemini model.
+# Expected 500 response: "Backend not configured for the requested model or API type."
+POST {{apimEndpoint}}/v1beta/openai/chat/completions
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gemini-invalid-model",
+    "messages": [
+        {
+            "role": "user",
+            "content": "This should fail"
+        }
+    ],
+    "max_tokens": 20
+}
+
+### Test: Unrecognized Path (Path Validation)
+### Tests gateway behavior when requesting a path that doesn't match any configured API type base-path
+### Expected Response: 403 Forbidden with PathNotAllowed error code
+POST {{apimEndpoint}}/admin/reset
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "action": "reset"
+}
+
+###

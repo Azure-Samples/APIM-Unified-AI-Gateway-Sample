@@ -1,0 +1,390 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+### Unified AI Gateway - GPT-4.1-mini Tests
+### 
+### This test collection validates the GPT-4.1-mini model using Microsoft Foundry for OpenAI chat completions and Responses API.
+### 
+### Prerequisites (see ReadMe for details):
+### 1. Run `azd up` to provision the infrastructure and create the VS Code settings file with all required variables
+### 2. Ensure your APIM instance and GPT-4.1-mini Foundry backends are successfully deployed
+###
+### Usage:
+### - Click "Send Request" above each request in VS Code with REST Client extension
+### - Expected debug headers are documented for each test to validate routing behavior
+### - For tests that require JWT bearer token authentication, run Authentication Setup request to generate the JWT token first
+### - JWT tokens expire; if you get 401 errors, re-run request to refresh the token
+
+# Variables from VS Code REST Client settings
+@apimEndpoint = {{apim_gateway_url}}/unified-ai
+@apiVersion = 2025-01-01-preview
+
+# APIM subscription key from VS Code settings
+@apimSubKey = {{apim_subscription_key}}
+
+# Use dynamic token from the authentication request below:
+@jwtToken = {{getJwtToken.response.body.access_token}}
+
+###############################################################################
+### Authentication Setup - JWT Bearer Token Generation
+###############################################################################
+
+### Get Bearer Token for JWT Authentication
+# @name getJwtToken
+# Uses actual values from VS Code settings - no manual configuration needed!
+POST https://login.microsoftonline.com/{{tenant_id}}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials
+&client_id={{entra_app_id}}
+&client_secret={{entra_app_client_secret}}
+&scope={{entra_app_identifier_uri}}/.default
+
+### The access_token is automatically assigned to @jwtToken variable above
+### Make sure to run the "Get Bearer Token" request first before running JWT tests
+### Note: JWT tokens expire and will need to be refreshed periodically by re-running this request
+
+###############################################################################
+### GPT-4.1-mini Chat Completions Tests
+###############################################################################
+
+### Test: OpenAI GPT-4.1-mini Chat Completion with JWT
+# Estimate token usage based on your request content; compare your estimates against the X-Prompt-Tokens, X-Completion-Tokens, and X-Total-Tokens response headers.
+# Expected Debug Headers:
+# UAIG-Auth-Type: jwt
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Selected-API-Version: 2024-02-15-preview (overwrites provided version in requestwith value in metadata-config)
+# UAIG-API-Type: openai 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/deployments/gpt-4.1-mini/chat/completions
+# x-ms-region: Sending multiple requests should result in round-robin load balancing across backends in the 'standard-pool' each in a different region
+# NOTE: You will receive a 401 response if either you haven't obtained a token (see first request) or the token is expired
+POST {{apimEndpoint}}/openai/deployments/gpt-4.1-mini/chat/completions?api-version={{apiVersion}}
+Authorization: Bearer {{jwtToken}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "messages": [
+        {
+            "role": "user",
+            "content": "Hello! Respond by briefly explaining JWT authentication."
+        }
+    ],
+    "max_tokens": 50,
+    "temperature": 0.3
+}
+
+###
+
+### Test: OpenAI GPT-4.1-mini Chat Completion with API Key
+# Estimate token usage based on your request content; compare your estimates against the X-Prompt-Tokens, X-Completion-Tokens, and X-Total-Tokens response headers.
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Selected-API-Version: 2024-02-15-preview
+# UAIG-API-Type: openai 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/deployments/gpt-4.1-mini/chat/completions
+# x-ms-region: Sending multiple requests should result in round-robin load balancing across backends in the 'standard-pool' each in a different region
+POST {{apimEndpoint}}/openai/deployments/gpt-4.1-mini/chat/completions
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "messages": [
+        {
+            "role": "user",
+            "content": "Write a very comprehensive and detailed analysis of artificial intelligence, machine learning, quantum computing, and their interconnections. Please provide extensive examples, case studies, historical context, current applications, future predictions, technical challenges, and industry impact across multiple sectors. Make this response extremely detailed and lengthy to ensure it takes significant processing time and triggers the 1-second timeout."
+        }
+    ],
+    "max_tokens": 100,
+    "temperature": 0.7
+}
+
+###
+
+### Test: Model Id Injection - Model Field Missing from Request Body
+# Estimate token usage based on your request content; compare your estimates against the X-Prompt-Tokens, X-Completion-Tokens, and X-Total-Tokens response headers.
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Selected-API-Version: 2024-02-15-preview
+# UAIG-API-Type: openai 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/deployments/gpt-4.1-mini/chat/completions
+POST {{apimEndpoint}}/openai/deployments/gpt-4.1-mini/chat/completions
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "Say hello in exactly 3 words"
+        }
+    ],
+    "max_tokens": 10,
+    "temperature": 0.3
+}
+
+###
+
+### Test: OpenAI GPT-4.1-mini Chat Completion with Streaming (JWT)
+# This test validates Server-Sent Events (SSE) streaming for GPT-4.1-mini
+# 
+# Expected Debug Headers:
+# UAIG-Auth-Type: jwt
+# UAIG-Selected-Backend: standard-pool
+# UAIG-Selected-API-Version: 2024-02-15-preview
+# UAIG-API-Type: openai 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/deployments/gpt-4.1-mini/chat/completions
+# UAIG-Request-Timeout: 360 (120 base * 3 streaming multiplier)
+#
+# Expected Streaming Response Validation:
+# 1. Response Headers: Content-Type should be "text/event-stream" with Transfer-Encoding: chunked
+# 2. Response Body: Multiple "data:" prefixed JSON chunks arriving incrementally
+# 3. Each chunk contains: {"id":"...","object":"chat.completion.chunk","choices":[{"delta":{"content":"..."}}]}
+# 4. Final content chunk has: "finish_reason": "stop"
+# 5. Stream terminates with: data: [DONE]
+#
+# NOTE: The complete response is distributed across all chunks. Concatenate the "delta.content" 
+# values from each chunk to reconstruct the full response text.
+#
+# NOTE: You will receive a 401 response if either you haven't obtained a token (see first request) or the token is expired
+POST {{apimEndpoint}}/openai/deployments/gpt-4.1-mini/chat/completions?api-version={{apiVersion}}
+Authorization: Bearer {{jwtToken}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "messages": [
+        {
+            "role": "user",
+            "content": "Say hello in 5 words."
+        }
+    ],
+    "max_tokens": 20,
+    "temperature": 0.3,
+    "stream": true
+}
+
+###
+
+###############################################################################
+### Responses API Tests (Stateful Backend Operations)
+###############################################################################
+
+### Test: Standard Response without API Version
+# Estimate token usage based on your request content; compare your estimates against the X-Prompt-Tokens, X-Completion-Tokens, and X-Total-Tokens response headers.
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/responses
+POST {{apimEndpoint}}/openai/responses
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "input": "Explain the concept of API versioning in software development",
+    "temperature": 0.3
+}
+
+###
+
+### Test: Responses API with Streaming
+# This test validates Server-Sent Events (SSE) streaming for the Responses API
+# 
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/responses
+# UAIG-Is-Streaming: true
+# UAIG-Request-Timeout: 360 (120 base * 3 streaming multiplier)
+#
+# Expected Streaming Response Validation:
+# 1. Response Headers: Content-Type should be "text/event-stream" with Transfer-Encoding: chunked
+# 2. Response Body: Multiple "data:" prefixed JSON chunks arriving incrementally
+# 3. Stream terminates with: data: [DONE]
+#
+# NOTE: The complete response is distributed across all chunks. Concatenate the content 
+# values from each chunk to reconstruct the full response text.
+POST {{apimEndpoint}}/openai/responses
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "input": "Say goodbye in 5 words.",
+    "temperature": 0.3,
+    "stream": true
+}
+
+###
+
+### Test: Standard Response
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview (overwrites provided version in requestwith value in metadata-config)
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/responses
+# @name stdResponse
+POST {{apimEndpoint}}/openai/responses?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "input": "Write a creative haiku about cloud computing and AI integration",
+    "temperature": 0.8
+}
+
+### Extract the response ID from the Standard Response test
+@stdResponseId = {{stdResponse.response.body.id}}
+
+###
+
+### Test: Chained Response with Context (using previous_response_id)
+# This test demonstrates how to chain responses together while maintaining context
+# The model will have full context of the previous question and response without manually including it
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/responses
+# NOTE: Run the "Standard Response" test above first to get a valid response ID
+POST {{apimEndpoint}}/openai/responses?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "previous_response_id": "{{stdResponseId}}",
+    "input": "Can you explain that in simpler terms that a high school student would understand?"
+}
+
+###
+
+### Test: Get Response (GET) - Standard API with API Version
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview  (overwrites provided version in requestwith value in metadata-config)
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: not-applicable
+# UAIG-Forwarded-Path: /openai/responses/{responseId}
+# NOTE: If a response with the specified ID doesn't exist, you will receive a 404 response
+GET {{apimEndpoint}}/openai/responses/{{stdResponseId}}?api-version={{apiVersion}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+###
+
+### Test: Delete Response (DELETE) - Standard API without API version
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: 2025-03-01-preview
+# UAIG-API-Type: responses 
+# UAIG-Model-ID: not-applicable
+# UAIG-Forwarded-Path: /openai/responses/{responseId}
+# NOTE: If a response with the specified ID doesn't exist, you will receive a 404 response
+DELETE {{apimEndpoint}}/openai/responses/{{stdResponseId}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+###
+
+###############################################################################
+### Responses V1 API Tests (Stateful Backend Operations)
+###############################################################################
+
+### Test: V1 Response
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: v1
+# UAIG-API-Type: responses-v1 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/v1/responses
+# @name v1Response
+POST {{apimEndpoint}}/openai/v1/responses
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "input": "Provide 3 key benefits of using OpenAI v1 API format for responses",
+    "temperature": 0.2
+}
+
+### Extract the response ID from the V1 response creation
+@v1ResponseId = {{v1Response.response.body.id}}
+
+###
+
+### Test: Chained Response with Context (using previous_response_id) - V1 API
+# This test demonstrates how to chain V1 responses together while maintaining context
+# The model will have full context of the previous question and response without manually including it
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: v1
+# UAIG-API-Type: responses-v1 
+# UAIG-Model-ID: gpt-4.1-mini
+# UAIG-Forwarded-Path: /openai/v1/responses
+# NOTE: Run the "V1 Response" test above first to get a valid response ID
+POST {{apimEndpoint}}/openai/v1/responses
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+{
+    "model": "gpt-4.1-mini",
+    "previous_response_id": "{{v1ResponseId}}",
+    "input": "Can you explain that in simpler terms that a high school student would understand?"
+}
+
+###
+
+### Test: Get Response (GET) - V1 API
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: v1
+# UAIG-API-Type: responses-v1 
+# UAIG-Model-ID: not-applicable
+# UAIG-Forwarded-Path: /openai/v1/responses/{responseId}
+# NOTE: If a response with the specified ID doesn't exist, you will receive a 404 response
+GET {{apimEndpoint}}/openai/v1/responses/{{v1ResponseId}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+###
+
+### Test: Delete Response (DELETE) - V1 API
+# Expected Debug Headers:
+# UAIG-Auth-Type: api-key
+# UAIG-Selected-Backend: standard-responses-backend
+# UAIG-Selected-API-Version: v1
+# UAIG-API-Type: responses-v1 
+# UAIG-Model-ID: not-applicable
+# UAIG-Forwarded-Path: /openai/v1/responses/{responseId}
+# NOTE: If a response with the specified ID doesn't exist, you will receive a 404 response
+DELETE {{apimEndpoint}}/openai/v1/responses/{{v1ResponseId}}
+api-key: {{apimSubKey}}
+Content-Type: application/json
+
+###

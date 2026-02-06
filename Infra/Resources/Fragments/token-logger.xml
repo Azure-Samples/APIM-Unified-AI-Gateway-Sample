@@ -1,0 +1,128 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+====================================================================================================
+Token Logger Fragment
+====================================================================================================
+
+SUMMARY:
+	Logs LLM token usage metrics to Application Insights using the built-in llm-emit-token-metric
+	policy. Metrics are namespaced by API type for granular monitoring and cost attribution.
+	This replaces custom token extraction logic with Azure's native LLM metrics support.
+
+METRICS EMITTED:
+	- Prompt Tokens: Number of tokens in the input/prompt
+	- Completion Tokens: Number of tokens in the generated response
+	- Total Tokens: Combined token count (prompt + completion)
+
+NAMESPACES (by api-type):
+	- UAIG-OpenAI: Standard Azure OpenAI deployments
+	- UAIG-Inference: Azure AI Model Inference API
+	- UAIG-Responses: Responses API (stateful conversations)
+	- UAIG-Gemini: Gemini via OpenAI-compatible endpoint
+	- UAIG-Default: Fallback for other API types
+
+DIMENSIONS (7 total per policy instance):
+		- UAIG Model ID: Model identifier from request-processor
+		- UAIG API Type: API type classification
+		- User ID: User identifier from security-handler (JWT azp claim or subscription name)
+		- Subscription ID: Subscription name from security-handler
+		- Backend ID: Backend pool that handled the request
+		- Original Path: Request path for operation-level analytics
+		- Final Path: Constructed backend path from path-builder
+
+INPUT VARIABLES:
+	- api-type: String - API type classification (openai|inference|responses|geminiopenai)
+	- model-id: String - Selected AI model identifier
+	- user-id: String - User identifier from security-handler
+	- subscription-name: String - Subscription name from security-handler
+	- selected-backend: String - Backend ID from backend-selector
+	- routing-processed-path: String - Original request path from request-processor
+	- finalPath: String - Constructed backend path from path-builder
+
+UPSTREAM DEPENDENCIES:
+	- request-processor fragment: Provides api-type, model-id
+	- security-handler fragment: Provides user-id, subscription-name
+	- backend-selector fragment: Provides selected-backend
+
+REFERENCE:
+	https://learn.microsoft.com/en-us/azure/api-management/llm-emit-token-metric-policy
+====================================================================================================
+-->
+<fragment fragment-id="token-logger">
+	<choose>
+		<!-- OpenAI API metrics -->
+		<when condition="@{
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type", "");
+			return apiType.Equals("openai", StringComparison.OrdinalIgnoreCase);
+		}">
+			<llm-emit-token-metric namespace="UAIG-OpenAI">
+				<dimension name="UAIG Model ID" value="@(context.Variables.GetValueOrDefault<string>("model-id", "unknown"))" />
+				<dimension name="UAIG API Type" value="@(context.Variables.GetValueOrDefault<string>("api-type", "unknown"))" />
+				<dimension name="User ID" value="@(context.Variables.GetValueOrDefault<string>("user-id", "N/A"))" />
+				<dimension name="Subscription ID" value="@(context.Variables.GetValueOrDefault<string>("subscription-name", "N/A"))" />
+				<dimension name="Backend ID" value="@(context.Variables.GetValueOrDefault<string>("selected-backend", "N/A"))" />
+				<dimension name="Original Path" value="@(context.Variables.GetValueOrDefault<string>("routing-processed-path", "N/A"))" />
+				<dimension name="Final Path" value="@(context.Variables.GetValueOrDefault<string>("finalPath", "N/A"))" />
+			</llm-emit-token-metric>
+		</when>
+		<!-- Inference API metrics -->
+		<when condition="@{
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type", "");
+			return apiType.Equals("inference", StringComparison.OrdinalIgnoreCase);
+		}">
+			<llm-emit-token-metric namespace="UAIG-Inference">
+				<dimension name="UAIG Model ID" value="@(context.Variables.GetValueOrDefault<string>("model-id", "unknown"))" />
+				<dimension name="UAIG API Type" value="@(context.Variables.GetValueOrDefault<string>("api-type", "unknown"))" />
+				<dimension name="User ID" value="@(context.Variables.GetValueOrDefault<string>("user-id", "N/A"))" />
+				<dimension name="Subscription ID" value="@(context.Variables.GetValueOrDefault<string>("subscription-name", "N/A"))" />
+				<dimension name="Backend ID" value="@(context.Variables.GetValueOrDefault<string>("selected-backend", "N/A"))" />
+				<dimension name="Original Path" value="@(context.Variables.GetValueOrDefault<string>("routing-processed-path", "N/A"))" />
+				<dimension name="Final Path" value="@(context.Variables.GetValueOrDefault<string>("finalPath", "N/A"))" />
+			</llm-emit-token-metric>
+		</when>
+		<!-- Responses API metrics (v1 and standard) -->
+		<when condition="@{
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type", "");
+			return apiType.Equals("responses", StringComparison.OrdinalIgnoreCase) || 
+			       apiType.Equals("responses-v1", StringComparison.OrdinalIgnoreCase);
+		}">
+			<llm-emit-token-metric namespace="UAIG-Responses">
+				<dimension name="UAIG Model ID" value="@(context.Variables.GetValueOrDefault<string>("model-id", "unknown"))" />
+				<dimension name="UAIG API Type" value="@(context.Variables.GetValueOrDefault<string>("api-type", "unknown"))" />
+				<dimension name="User ID" value="@(context.Variables.GetValueOrDefault<string>("user-id", "N/A"))" />
+				<dimension name="Subscription ID" value="@(context.Variables.GetValueOrDefault<string>("subscription-name", "N/A"))" />
+				<dimension name="Backend ID" value="@(context.Variables.GetValueOrDefault<string>("selected-backend", "N/A"))" />
+				<dimension name="Original Path" value="@(context.Variables.GetValueOrDefault<string>("routing-processed-path", "N/A"))" />
+				<dimension name="Final Path" value="@(context.Variables.GetValueOrDefault<string>("finalPath", "N/A"))" />
+			</llm-emit-token-metric>
+		</when>
+		<!-- Gemini OpenAI-compatible API metrics -->
+		<when condition="@{
+			var apiType = context.Variables.GetValueOrDefault<string>("api-type", "");
+			return apiType.Equals("geminiopenai", StringComparison.OrdinalIgnoreCase);
+		}">
+			<llm-emit-token-metric namespace="UAIG-Gemini">
+				<dimension name="UAIG Model ID" value="@(context.Variables.GetValueOrDefault<string>("model-id", "unknown"))" />
+				<dimension name="UAIG API Type" value="@(context.Variables.GetValueOrDefault<string>("api-type", "unknown"))" />
+				<dimension name="User ID" value="@(context.Variables.GetValueOrDefault<string>("user-id", "N/A"))" />
+				<dimension name="Subscription ID" value="@(context.Variables.GetValueOrDefault<string>("subscription-name", "N/A"))" />
+				<dimension name="Backend ID" value="@(context.Variables.GetValueOrDefault<string>("selected-backend", "N/A"))" />
+				<dimension name="Original Path" value="@(context.Variables.GetValueOrDefault<string>("routing-processed-path", "N/A"))" />
+				<dimension name="Final Path" value="@(context.Variables.GetValueOrDefault<string>("finalPath", "N/A"))" />
+			</llm-emit-token-metric>
+		</when>
+		<!-- Default/fallback for openai-v1 and other API types -->
+		<otherwise>
+			<llm-emit-token-metric namespace="UAIG-Default">
+				<dimension name="UAIG Model ID" value="@(context.Variables.GetValueOrDefault<string>("model-id", "unknown"))" />
+				<dimension name="UAIG API Type" value="@(context.Variables.GetValueOrDefault<string>("api-type", "unknown"))" />
+				<dimension name="User ID" value="@(context.Variables.GetValueOrDefault<string>("user-id", "N/A"))" />
+				<dimension name="Subscription ID" value="@(context.Variables.GetValueOrDefault<string>("subscription-name", "N/A"))" />
+				<dimension name="Backend ID" value="@(context.Variables.GetValueOrDefault<string>("selected-backend", "N/A"))" />
+				<dimension name="Original Path" value="@(context.Variables.GetValueOrDefault<string>("routing-processed-path", "N/A"))" />
+				<dimension name="Final Path" value="@(context.Variables.GetValueOrDefault<string>("finalPath", "N/A"))" />
+			</llm-emit-token-metric>
+		</otherwise>
+	</choose>
+</fragment>

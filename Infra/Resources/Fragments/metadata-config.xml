@@ -1,0 +1,100 @@
+<!-- Copyright (c) Microsoft Corporation. -->
+<!-- Licensed under the MIT License. -->
+<!-- 
+====================================================================================================
+Metadata Configuration Fragment
+====================================================================================================
+	
+SUMMARY:
+	Provides centralized configuration management for AI models, API routing,
+	and system behavior across the Unified AI Gateway Sample. Acts as the single source of truth for
+	model definitions, backend pool mappings, API type specifications,
+	and cache settings. Essential foundation fragment for all gateway operations.
+
+INPUT VARIABLES:
+	- None (this is the base foundational configuration fragment)
+	
+OUTPUT VARIABLES:
+	- metadata-config: String - Complete JSON configuration containing all model, auth, and routing settings
+	
+DOWNSTREAM CONSUMERS:
+	- central-cache-manager fragment: Processes and caches the configuration for performance optimization
+	- backend-selector fragment: Uses models and api-types sections for routing decisions and backend selection
+	- token-limiter fragment: Uses models configuration for tier lookup and LLM token throttling
+	- diagnostic-headers fragment: References model and API information for debug response headers
+	
+UPSTREAM DEPENDENCIES:
+	- None (this is the base foundational configuration fragment loaded first)
+	-->
+<fragment fragment-id="metadata-config">
+	<set-variable name="metadata-config" value="@{return @"{
+		'models': {
+			'gpt-4.1': {
+				'backend': 'premium-pool',
+				'tier': 'premium',
+				'api-version': '2024-02-15-preview',
+				'timeout': 120
+			},
+			'gpt-4.1-mini': {
+				'backend': 'standard-pool',
+				'tier': 'standard',
+				'api-version': '2024-02-15-preview',
+				'timeout': 120
+			},
+			'phi-4': {
+				'backend': 'inference-backend',
+				'tier': 'standard',
+				'api-version': '2024-02-15-preview',
+				'inference-api-version':'2024-05-01-preview',
+				'timeout': 120
+			},
+			'gemini-2.5-flash-lite': {
+				'backend': 'gemini-backend',
+				'tier': 'standard',
+				'api-version': 'v1beta',
+				'timeout': 120
+			}
+		},
+		'api-types': {
+			'responses-v1': {
+				'base-path': '/openai/v1/responses',
+				'path-segment': '/openai/v1/responses',
+				'api-version': 'v1',
+				'backend': 'standard-responses-backend'
+			},
+			'openai-v1': {
+				'base-path': '/openai/v1',
+				'path-segment': '/deployments',
+				'api-version': 'v1'
+			},
+			'responses': {
+				'base-path': '/openai/responses',
+				'path-segment': '/responses',
+				'api-version': '2025-03-01-preview',
+				'backend': 'standard-responses-backend'
+			},
+			'geminiopenai': {
+				'base-path': '/v1beta/openai',
+				'path-segment': '/v1beta/openai',
+				'api-version': 'v1beta'
+			},
+			'openai': {
+				'base-path': '/openai',
+				'path-segment': '/deployments',
+				'api-version': '2024-02-15-preview'
+			},
+			'inference': {
+				'base-path': '/models',
+				'path-segment': '/models',
+				'api-version': '2024-05-01-preview'
+			}
+		},
+		'cache-settings': {
+			'config-version': '1.0.0',
+			'ttl-seconds': 300
+		},
+		'timeout-settings': {
+			'streaming-multiplier': 3
+		}
+	}";}" />
+</fragment>
