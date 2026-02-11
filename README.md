@@ -169,12 +169,17 @@ See <a href="https://learn.microsoft.com/en-us/azure/azure-resource-manager/mana
 <details>
 <summary><b>(Optional) Use Dev Container</b></summary>
 
-You may use a <a href="https://code.visualstudio.com/docs/devcontainers/containers" target="_blank">Dev Container</a> that already has the software prerequisites installed via the sample's [devcontainer.json file](.devcontainer/devcontainer.json). This requires you to install the <a href="https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers" target="_blank">Dev Containers VS Code extension</a>. 
+You may use a <a href="https://code.visualstudio.com/docs/devcontainers/containers" target="_blank">Dev Container</a> that already has the software prerequisites installed via the sample's [devcontainer.json file](.devcontainer/devcontainer.json). You must first install:
+- <a href="https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers" target="_blank">Dev Containers VS Code extension</a>
+- <a href="https://aka.ms/install-azd" target="_blank">Azure Developer CLI (AZD)</a>
 
 To use the container:
-- Download the sample from GitHub by initializing the AZD template (see [Deploy](#deploy) section for details) and open the sample in VS code so that the [`.devcontainer`](.devcontainer) directory is located at the root of the workspace.
-- Select **Dev Containers: Reopen in Container** from the command palette in VS Code.
-- Wait for the Dev Container setup to complete. You'll see a `Done` message in the terminal when ready.
+- Follow [Step 1: AZD template initialization](#step-1-azd-template-initialization) to download the sample and initialize the AZD template, then open the sample in VS code so that the [`.devcontainer`](.devcontainer) directory is located at the root of the workspace.
+- Select **Dev Containers: Reopen in Container** from the command palette in VS Code (use `Ctrl+Shift+P` to open the command palette).
+- Allow the Dev Container setup to complete. A `Done. Press any key to close the terminal.` message indicates the setup is finished.
+- Once the container opens in VS Code as shown in the following screenshot, open a bash terminal and continue with [Step 2: Authenticate](#step-2-authenticate) in the Deploy section to finish deploying the sample.
+
+   <img src="ContentImages/DevContainer.png" alt="Dev Container in VS Code">  
 - If HTTP tests don't run initially, try switching from the container back to the local environment and then back to the container to refresh VS Code settings. See [Step 5: Test the Unified AI Gateway](#step-5-test-the-unified-ai-gateway) for more information.
 </details>
 
@@ -267,7 +272,7 @@ After provisioning completes:
    - Azure resources are tagged with `azd-env-name` and use a unique resource token for resource naming
    - If you see a `warning: Deprecated flag: -state`, this will *not* have any impact on your deployment
 
-### Step 5: Test the Unified AI Gateway
+### Step 5: Test the Unified AI Gateway 
 
 Validate the deployed gateway by executing test requests to different AI models using VS Code's REST Client extension.
 
@@ -790,6 +795,20 @@ If you're hitting backend service limits rather than APIM gateway limits, increa
    ```
 
 2. **Redeploy** - Run `azd up` to update the Foundry deployment quota
+
+</details>
+<details>
+<summary><b>Terraform precondition failed error (412)</b></summary>
+
+If you receive a 412 error during deployment:
+
+```
+Error: Failed to create/update resource
+ERROR CODE: IfMatchPreconditionFailed
+"message": "The specified precondition 'If-Match' failed."
+```
+
+This is a transient Azure API concurrency error. Simply run `azd up` again to retry the deployment.
 
 </details>
 
