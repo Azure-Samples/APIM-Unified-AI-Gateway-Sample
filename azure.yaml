@@ -5,6 +5,8 @@
 # Minimal scaffold wiring to Terraform for infra provisioning.
 
 name: unified-ai-gateway-sample
+metadata:
+  template: apim-unified-ai-gateway-sample
 
 infra:
   provider: terraform
